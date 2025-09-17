@@ -1,0 +1,9 @@
+{
+    "comments": "Make a copy of this file and save to `config.json`. Fill in your private key and other settings.",
+    "network": "kairos",
+    "api_url": "https://api-dev.dexor.trade",
+    "l1_address": "0x0000000000000000000000000000000000000000",
+    "l1_wallet": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "l2_wallet": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "session_enabled": false
+}

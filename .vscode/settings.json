@@ -1,0 +1,5 @@
+{
+    "files.autoSave": "onFocusChange",
+    "json.format.enable": true,
+    "editor.formatOnType": true
+}
