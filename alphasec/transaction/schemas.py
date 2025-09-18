@@ -23,9 +23,9 @@ class StopOrderModel(BaseModel):
     l1owner: AddressStr
     base_token: str = Field(min_length=1)
     quote_token: str = Field(min_length=1)
-    stop_price: int = Field(ge=1)
-    price: int = Field(ge=0)
-    quantity: int = Field(ge=1)
+    stop_price: str = Field(min_length=1)
+    price: str = Field(min_length=1)
+    quantity: str = Field(min_length=1)
     side: Literal[0, 1]
     order_type: Literal[0, 1]
     order_mode: Literal[0, 1]
@@ -43,9 +43,9 @@ class StopOrderModel(BaseModel):
             "l1owner": self.l1owner,
             "baseToken": self.base_token,
             "quoteToken": self.quote_token,
-            "stopPrice": str(int(self.stop_price)),
-            "price": str(int(self.price)),
-            "quantity": str(int(self.quantity)),
+            "stopPrice": self.stop_price,
+            "price": self.price,
+            "quantity": self.quantity,
             "side": int(self.side),
             "orderType": int(self.order_type),
             "orderMode": int(self.order_mode),
@@ -89,18 +89,18 @@ class TokenTransferModel(BaseModel):
 
 
 class TpslModel(BaseModel):
-    tp_limit: int = Field(default=None, ge=0)
-    sl_trigger: int = Field(default=None, ge=0)
-    sl_limit: Optional[int] = Field(default=None, ge=0)
+    tp_limit: Optional[str] = Field(default=None)
+    sl_trigger: Optional[str] = Field(default=None)
+    sl_limit: Optional[str] = Field(default=None)
 
     def to_wire(self) -> dict:
         out = {}
         if self.tp_limit is not None:
-            out["tpLimit"] = str(int(self.tp_limit))
+            out["tpLimit"] = self.tp_limit
         if self.sl_trigger is not None:
-            out["slTrigger"] = str(int(self.sl_trigger))
+            out["slTrigger"] = self.sl_trigger
         if self.sl_limit is not None:
-            out["slLimit"] = str(int(self.sl_limit))
+            out["slLimit"] = self.sl_limit
         return out
 
 
@@ -109,8 +109,8 @@ class OrderModel(BaseModel):
     base_token: str = Field(min_length=1)
     quote_token: str = Field(min_length=1)
     side: Literal[0, 1]
-    price: int = Field(ge=0)
-    quantity: int = Field(ge=1)
+    price: str = Field(min_length=1)
+    quantity: str = Field(min_length=1)
     order_type: Literal[0, 1]
     order_mode: Literal[0, 1]
     tpsl: Optional[TpslModel] = None
@@ -129,8 +129,8 @@ class OrderModel(BaseModel):
             "baseToken": self.base_token,
             "quoteToken": self.quote_token,
             "side": int(self.side),
-            "price": str(int(self.price)),
-            "quantity": str(int(self.quantity)),
+            "price": self.price,
+            "quantity": self.quantity,
             "orderType": int(self.order_type),
             "orderMode": int(self.order_mode),
         }
@@ -170,8 +170,8 @@ class CancelAllModel(BaseModel):
 class ModifyModel(BaseModel):
     l1owner: AddressStr
     order_id: str = Field(min_length=1)
-    new_price: Optional[int] = Field(default=None, ge=0)
-    new_qty: Optional[int] = Field(default=None, ge=0)
+    new_price: Optional[str] = Field(default=None)
+    new_qty: Optional[str] = Field(default=None)
     order_mode: Literal[0, 1]
 
     @field_validator("order_id")
@@ -184,7 +184,7 @@ class ModifyModel(BaseModel):
 
     @field_validator("new_price", "new_qty")
     @classmethod
-    def allow_none(cls, v: Optional[int]) -> Optional[int]:
+    def allow_none(cls, v: Optional[str]) -> Optional[str]:
         return v
 
     @field_validator("order_mode")
@@ -203,9 +203,9 @@ class ModifyModel(BaseModel):
             "orderMode": str(int(self.order_mode)),
         }
         if self.new_price is not None:
-            out["newPrice"] = str(int(self.new_price))
+            out["newPrice"] = self.new_price
         if self.new_qty is not None:
-            out["newQty"] = str(int(self.new_qty))
+            out["newQty"] = self.new_qty
         return out
 
 

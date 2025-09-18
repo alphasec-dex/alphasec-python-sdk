@@ -222,6 +222,7 @@ class API:
         response = self.post(f"/api/v1/order", params={
             "tx": tx,
         })
+        print(response)
         if response['code'] != 200:
             return False
         return True

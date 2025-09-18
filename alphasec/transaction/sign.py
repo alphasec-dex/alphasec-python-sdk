@@ -58,6 +58,22 @@ from .abi import (
 def address_to_bytes(address):
     return bytes.fromhex(address[2:] if address.startswith("0x") else address)
 
+def format_decimal(value: float, decimals: int = 3) -> str:
+    """Format decimal value to string with specified decimal places precision.
+    
+    Args:
+        value: Decimal value to format
+        decimals: Number of decimal places (default: 3)
+    
+    Returns:
+        String representation with specified decimal places
+    """
+    if not isinstance(value, (int, float)):
+        raise ValueError("Value must be int or float")
+    
+    # Format to specified decimal places and return as string
+    return f"{value:.{decimals}f}"
+
 class AlphasecSigner:
     l1_address: str
     l1_wallet: Account
@@ -158,17 +174,24 @@ class AlphasecSigner:
         base_token: str,
         quote_token: str,
         side: int,
-        price: int,
-        quantity: int,
+        price: float,
+        quantity: float,
         order_type: int,
         order_mode: int,
-        tp_limit: Optional[int] = None,
-        sl_trigger: Optional[int] = None,
-        sl_limit: Optional[int] = None,
+        tp_limit: Optional[float] = None,
+        sl_trigger: Optional[float] = None,
+        sl_limit: Optional[float] = None,
     ) -> bytes:
+        # Format decimal values to strings with 3 decimal places precision
+        price_str = format_decimal(price)
+        quantity_str = format_decimal(quantity)
+        
         tpsl_model = None
         if tp_limit is not None or sl_trigger is not None:
-            tpsl_model = TpslModel(tp_limit=tp_limit, sl_trigger=sl_trigger, sl_limit=sl_limit)
+            tp_limit_str = format_decimal(tp_limit) if tp_limit is not None else None
+            sl_trigger_str = format_decimal(sl_trigger) if sl_trigger is not None else None
+            sl_limit_str = format_decimal(sl_limit) if sl_limit is not None else None
+            tpsl_model = TpslModel(tp_limit=tp_limit_str, sl_trigger=sl_trigger_str, sl_limit=sl_limit_str)
 
         wallet = self.get_wallet()
         model = OrderModel(
@@ -176,8 +199,8 @@ class AlphasecSigner:
             base_token=base_token,
             quote_token=quote_token,
             side=side,
-            price=price,
-            quantity=quantity,
+            price=price_str,
+            quantity=quantity_str,
             order_type=order_type,
             order_mode=order_mode,
             tpsl=tpsl_model,
@@ -197,21 +220,30 @@ class AlphasecSigner:
         return bytes([DexCommandCancelAll]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
         
 
-    def create_modify_data(self, order_id: str, new_price: int, new_qty: int, order_mode: int) -> bytes:
+    def create_modify_data(self, order_id: str, new_price: Optional[float], new_qty: Optional[float], order_mode: int) -> bytes:
+        # Format decimal values to strings with 3 decimal places precision
+        new_price_str = format_decimal(new_price) if new_price is not None else None
+        new_qty_str = format_decimal(new_qty) if new_qty is not None else None
+        
         wallet = self.get_wallet()
-        model = ModifyModel(l1owner=wallet.address, order_id=order_id, new_price=new_price, new_qty=new_qty, order_mode=order_mode) # TODO: change to l1_address
+        model = ModifyModel(l1owner=wallet.address, order_id=order_id, new_price=new_price_str, new_qty=new_qty_str, order_mode=order_mode) # TODO: change to l1_address
         return bytes([DexCommandModify]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
 
 
-    def create_stop_order_data(self, base_token: str, quote_token: str, stop_price: int, price: int, quantity: int, side: int, order_type: int, order_mode: int) -> bytes:
+    def create_stop_order_data(self, base_token: str, quote_token: str, stop_price: float, price: float, quantity: float, side: int, order_type: int, order_mode: int) -> bytes:
+        # Format decimal values to strings with 3 decimal places precision
+        stop_price_str = format_decimal(stop_price)
+        price_str = format_decimal(price)
+        quantity_str = format_decimal(quantity)
+        
         wallet = self.get_wallet()
         model = StopOrderModel(
             l1owner=wallet.address, # TODO: change to l1_address
             base_token=base_token,
             quote_token=quote_token,
-            stop_price=stop_price,
-            price=price,
-            quantity=quantity,
+            stop_price=stop_price_str,
+            price=price_str,
+            quantity=quantity_str,
             side=side,
             order_type=order_type,
             order_mode=order_mode,

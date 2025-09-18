@@ -1,4 +1,4 @@
-# AlphaSEC SDK Examples
+# AlphaSec Python SDK Examples
 
 This directory contains example scripts demonstrating how to use the AlphaSEC Python SDK.
 

@@ -1,4 +1,4 @@
-Alphasec SDK
+Alphasec Python SDK
 
 A trading SDK for the Alphasec orderbook DEX.
 

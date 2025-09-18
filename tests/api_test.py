@@ -118,7 +118,7 @@ def test_order():
     config = load_config(os.path.dirname(__file__) + "/config")
     api = API(url=config["api_url"], signer=AlphasecSigner(config))
 
-    result = api.order("GRND/USDT", BUY, price=15, quantity=1, order_type=LIMIT, order_mode=BASE_MODE)
+    result = api.order("GRND/USDT", BUY, price=5.00001, quantity=0.2, order_type=LIMIT, order_mode=BASE_MODE)
     assert result is True
 
 def test_cancel():
