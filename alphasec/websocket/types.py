@@ -1,4 +1,4 @@
-from typing import Union, TypedDict, Literal, List
+from typing import Union, TypedDict, Literal, List, Any, Dict, Optional
 from eth_account.types import HexAddress
 
 TradesSubscription = TypedDict("TradesSubscription", {"channels": List[str]})
@@ -92,7 +92,7 @@ UserEventResult = TypedDict(
         "lastPrice": str,
         "lastQty": str,
         "fee": str,
-        "feeTokenId": str | None,
+        "feeTokenId": Optional[str],
         "tradeId": str,
         "isMaker": bool,
     },
@@ -108,3 +108,20 @@ WsMsg = Union[
     TickerMsg,
     UserEventMsg,
 ]
+
+
+def camel_to_snake(camel_str: str) -> str:
+    """Convert camelCase string to snake_case"""
+    import re
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', camel_str)
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+
+def convert_to_snake_case(data: Any) -> Any:
+    """Recursively convert camelCase keys to snake_case in dictionaries"""
+    if isinstance(data, dict):
+        return {camel_to_snake(k): convert_to_snake_case(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [convert_to_snake_case(item) for item in data]
+    else:
+        return data

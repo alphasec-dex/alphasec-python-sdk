@@ -1,3 +1,4 @@
+from ast import List
 import json
 import logging
 import threading
@@ -7,32 +8,23 @@ import time
 from eth_utils.address import is_address
 import websocket
 
-from typing import Any, Callable, Dict, List, NamedTuple, Optional
+from typing import Any, Callable, Dict, NamedTuple, Optional
 from typing_extensions import TypeGuard
-from .types import Ack, Subscription, WsMsg
 
-logging.basicConfig(level=logging.DEBUG)
+from .types import Ack, WsMsg, convert_to_snake_case
 
 ActiveSubscription = NamedTuple("ActiveSubscription", [("callback", Callable[[Any], None]), ("subscription_id", int)])
 
-
-def subscription_to_identifier(subscription: Subscription) -> str:
-    if len(subscription["channels"]) == 0:
-        raise ValueError(f"No channels in subscription: {subscription}")
-
-    if len(subscription["channels"]) > 1:
-        raise ValueError(f"Multiple channels is not supported: {subscription}")
-
-    channel = subscription["channels"][0]
-    if "trades" in channel:
-        return "trades"
+def channel_to_identifier(channel: str) -> str:
+    if "trade" in channel:
+        return f'trade:{channel.split("@")[1].lower()}'
     if "depth" in channel:
-        return "depth"
+        return f'depth:{channel.split("@")[1].lower()}'
     if "ticker" in channel:
-        return "ticker"
-    if "userEvents" in channel:
-        return "userEvents"
-    raise ValueError(f"Unknown subscription: {subscription}")
+        return f'ticker:{channel.split("@")[1].lower()}'
+    if "userEvent" in channel:
+        return f'userEvent:{channel.split("@")[1].lower()}'
+    raise ValueError(f"Unknown channel: {channel}")
 
 def ws_msg_to_identifier(ws_msg: WsMsg) -> Optional[str]:
     channel = None
@@ -44,36 +36,36 @@ def ws_msg_to_identifier(ws_msg: WsMsg) -> Optional[str]:
     if "pong" in channel:
         return "pong"
 
-    if "trades" in channel:
+    if "trade" in channel:
         trades = ws_msg["params"]["result"]
         if len(trades) == 0:
             return None
         else:
-            return f'trades:{trades[0]["market_id"].lower()}'
+            return f'trade:{trades[0]["marketId"].lower()}'
 
     if "depth" in channel:
         depth = ws_msg["params"]["result"]
         if len(depth) == 0:
             return None
         else:
-            return f'depth:{depth[0]["market_id"].lower()}'
+            return f'depth:{depth["marketId"].lower()}'
 
     if "ticker" in channel:
         ticker = ws_msg["params"]["result"]
         if len(ticker) == 0:
             return None
         else:
-            return f'ticker:{ticker[0]["market_id"].lower()}'
+            return f'ticker:{ticker[0]["marketId"].lower()}'
 
-    if "userEvents" in channel:
-        user_events = ws_msg["params"]["result"]
+    if "userEvent" in channel:
+        user_event = ws_msg["params"]["result"]
         user_address = channel.split("@")[1]
         if not is_address(user_address):
             return None # or should we raise an error?
-        if len(user_events) == 0:
+        if len(user_event) == 0:
             return None
         else:
-            return f'userEvents:{user_address}'
+            return f'userEvent:{user_address.lower()}'
 
     logging.error(f"Unknown channel: {channel}")
     return None
@@ -128,19 +120,21 @@ class WebsocketManager(threading.Thread):
         if identifier is None:
             logging.debug("Websocket not handling empty message")
             return
+
         active_subscriptions = self.active_subscriptions[identifier]
         if len(active_subscriptions) == 0:
             print("Websocket message from an unexpected subscription:", message, identifier)
         else:
             for active_subscription in active_subscriptions:
-                active_subscription.callback(ws_msg)
+                ws_msg = convert_to_snake_case(ws_msg)
+                active_subscription.callback(ws_msg['params']['result'])
 
     def on_open(self, _ws):
         logging.debug("on_open")
         self.ws_ready = True
 
     def subscribe(
-        self, subscription_params: Subscription, callback: Callable[[Any], None], subscription_id: Optional[int] = None, timeout: Optional[int] = None
+        self, channel: str, callback: Callable[[Any], None], subscription_id: Optional[int] = None, timeout: Optional[int] = None
     ) -> int:
         start_time = time.time()
         while not self.ws_ready:
@@ -154,15 +148,15 @@ class WebsocketManager(threading.Thread):
             subscription_id = self.subscription_id_counter
 
         logging.debug("subscribing")
-        identifier = subscription_to_identifier(subscription_params)
-        if identifier == "userEvents":
+        identifier = channel_to_identifier(channel)
+        if identifier == "userEvent":
             if len(self.active_subscriptions[identifier]) != 0:
                 raise NotImplementedError(f"Cannot subscribe to {identifier} multiple times")
         self.active_subscriptions[identifier].append(ActiveSubscription(callback, subscription_id))
-        self.ws.send(json.dumps({"method": "subscribe", "params": subscription_params, "id": subscription_id}))
+        self.ws.send(json.dumps({"method": "subscribe", "params": {"channels": [channel]}, "id": subscription_id}))
         return subscription_id
 
-    def unsubscribe(self, subscription_params: Subscription, subscription_id: int, timeout: Optional[int] = None) -> bool:
+    def unsubscribe(self, channel: str, subscription_id: int, timeout: Optional[int] = None) -> bool:
         start_time = time.time()
         while not self.ws_ready:
             logging.debug("websocket is not ready yet, waiting")
@@ -172,10 +166,10 @@ class WebsocketManager(threading.Thread):
 
         if not self.ws_ready:
             raise NotImplementedError("Can't unsubscribe before websocket connected")
-        identifier = subscription_to_identifier(subscription_params)
+        identifier = channel_to_identifier(channel)
         active_subscriptions = self.active_subscriptions[identifier]
         new_active_subscriptions = [x for x in active_subscriptions if x.subscription_id != subscription_id]
         if len(new_active_subscriptions) == 0:
-            self.ws.send(json.dumps({"method": "unsubscribe", "params": subscription_params, "id": subscription_id}))
+            self.ws.send(json.dumps({"method": "unsubscribe", "params": {"channels": [channel]}, "id": subscription_id}))
         self.active_subscriptions[identifier] = new_active_subscriptions
         return len(active_subscriptions) != len(new_active_subscriptions)

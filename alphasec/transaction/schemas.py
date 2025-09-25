@@ -23,9 +23,9 @@ class StopOrderModel(BaseModel):
     l1owner: AddressStr
     base_token: str = Field(min_length=1)
     quote_token: str = Field(min_length=1)
-    stop_price: str = Field(min_length=1)
-    price: str = Field(min_length=1)
-    quantity: str = Field(min_length=1)
+    stop_price: float
+    price: float
+    quantity: float
     side: Literal[0, 1]
     order_type: Literal[0, 1]
     order_mode: Literal[0, 1]
@@ -43,9 +43,9 @@ class StopOrderModel(BaseModel):
             "l1owner": self.l1owner,
             "baseToken": self.base_token,
             "quoteToken": self.quote_token,
-            "stopPrice": self.stop_price,
-            "price": self.price,
-            "quantity": self.quantity,
+            "stopPrice": str(self.stop_price),
+            "price": str(self.price),
+            "quantity": str(self.quantity),
             "side": int(self.side),
             "orderType": int(self.order_type),
             "orderMode": int(self.order_mode),
@@ -55,20 +55,20 @@ class StopOrderModel(BaseModel):
 class ValueTransferModel(BaseModel):
     l1owner: AddressStr
     to: AddressStr
-    value: int = Field(ge=1)
+    value: float
 
     def to_wire(self) -> dict:
         return {
             "l1owner": self.l1owner,
             "to": self.to,
-            "value": str(int(self.value)),
+            "value": str(self.value),
         }
 
 
 class TokenTransferModel(BaseModel):
     l1owner: AddressStr
     to: AddressStr
-    value: int = Field(ge=1)
+    value: float
     token: str = Field(min_length=1)
 
     @field_validator("token")
@@ -83,7 +83,7 @@ class TokenTransferModel(BaseModel):
         return {
             "l1owner": self.l1owner,
             "to": self.to,
-            "value": str(int(self.value)),
+            "value": str(self.value),
             "token": self.token,
         }
 
@@ -109,8 +109,8 @@ class OrderModel(BaseModel):
     base_token: str = Field(min_length=1)
     quote_token: str = Field(min_length=1)
     side: Literal[0, 1]
-    price: str = Field(min_length=1)
-    quantity: str = Field(min_length=1)
+    price: float
+    quantity: float
     order_type: Literal[0, 1]
     order_mode: Literal[0, 1]
     tpsl: Optional[TpslModel] = None
@@ -129,8 +129,8 @@ class OrderModel(BaseModel):
             "baseToken": self.base_token,
             "quoteToken": self.quote_token,
             "side": int(self.side),
-            "price": self.price,
-            "quantity": self.quantity,
+            "price": str(self.price),
+            "quantity": str(self.quantity),
             "orderType": int(self.order_type),
             "orderMode": int(self.order_mode),
         }
@@ -170,8 +170,8 @@ class CancelAllModel(BaseModel):
 class ModifyModel(BaseModel):
     l1owner: AddressStr
     order_id: str = Field(min_length=1)
-    new_price: Optional[str] = Field(default=None)
-    new_qty: Optional[str] = Field(default=None)
+    new_price: Optional[float]
+    new_qty: Optional[float]
     order_mode: Literal[0, 1]
 
     @field_validator("order_id")
@@ -184,7 +184,7 @@ class ModifyModel(BaseModel):
 
     @field_validator("new_price", "new_qty")
     @classmethod
-    def allow_none(cls, v: Optional[str]) -> Optional[str]:
+    def allow_none(cls, v: float) -> Optional[float]:
         return v
 
     @field_validator("order_mode")
@@ -200,12 +200,12 @@ class ModifyModel(BaseModel):
         out = {
             "l1owner": self.l1owner,
             "orderId": self.order_id,
-            "orderMode": str(int(self.order_mode)),
+            "orderMode": int(self.order_mode),
         }
         if self.new_price is not None:
-            out["newPrice"] = self.new_price
+            out["newPrice"] = str(self.new_price)
         if self.new_qty is not None:
-            out["newQty"] = self.new_qty
+            out["newQty"] = str(self.new_qty)
         return out
 
 

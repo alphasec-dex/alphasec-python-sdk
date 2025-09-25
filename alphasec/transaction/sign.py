@@ -58,22 +58,6 @@ from .abi import (
 def address_to_bytes(address):
     return bytes.fromhex(address[2:] if address.startswith("0x") else address)
 
-def format_decimal(value: float, decimals: int = 3) -> str:
-    """Format decimal value to string with specified decimal places precision.
-    
-    Args:
-        value: Decimal value to format
-        decimals: Number of decimal places (default: 3)
-    
-    Returns:
-        String representation with specified decimal places
-    """
-    if not isinstance(value, (int, float)):
-        raise ValueError("Value must be int or float")
-    
-    # Format to specified decimal places and return as string
-    return f"{value:.{decimals}f}"
-
 class AlphasecSigner:
     l1_address: str
     l1_wallet: Account
@@ -132,16 +116,13 @@ class AlphasecSigner:
 
 
     def create_session_data(self, cmd: int, session_addr: str, timestamp_ms: int, expires_at: int, metadata: bytes = b"") -> bytes:
-
-        if self.session_enabled:
-            raise ValueError("Session is already enabled")
-        if self.get_wallet() is None:
-            raise ValueError("Wallet is not set")
+        if self.l1_wallet is None:
+            raise ValueError("l1_wallet is not set")
 
         # Build and sign EIP-712 typed data
         typed = self.session_register_typed_data(session_addr, timestamp_ms, expires_at)
         signable = encode_typed_data(full_message=typed)
-        signed = self.get_wallet().sign_message(signable)
+        signed = self.l1_wallet.sign_message(signable)
         signature_b64 = base64.b64encode(bytes(signed.signature)).decode("ascii")
 
         model = SessionContextModel(
@@ -149,23 +130,22 @@ class AlphasecSigner:
             publickey=session_addr,
             expiresAt=expires_at,
             nonce=timestamp_ms,
-            l1owner=self.get_wallet().address, # TODO: change to l1_address
+            l1owner=self.l1_address,
             l1signature=signature_b64,
             metadata=metadata.decode("utf-8") if isinstance(metadata, (bytes, bytearray)) and metadata else None,
         )
+        print(model.to_wire())
         payload_bytes = json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
         return bytes([DexCommandSession]) + payload_bytes
 
 
-    def create_value_transfer_data(self, to: str, value: int) -> bytes:
-        wallet = self.get_wallet()
-        model = ValueTransferModel(l1owner=wallet.address, to=to, value=value) # TODO: change to l1_address
+    def create_value_transfer_data(self, to: str, value: float) -> bytes:
+        model = ValueTransferModel(l1owner=self.l1_address, to=to, value=value)
         return bytes([DexCommandTransfer]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
 
 
-    def create_token_transfer_data(self, to: str, value: int, token: str) -> bytes:
-        wallet = self.get_wallet()
-        model = TokenTransferModel(l1owner=wallet.address, to=to, value=value, token=token) # TODO: change to l1_address
+    def create_token_transfer_data(self, to: str, value: float, token: str) -> bytes:
+        model = TokenTransferModel(l1owner=self.l1_address, to=to, value=value, token=token)
         return bytes([DexCommandTokenTransfer]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
 
 
@@ -183,24 +163,21 @@ class AlphasecSigner:
         sl_limit: Optional[float] = None,
     ) -> bytes:
         # Format decimal values to strings with 3 decimal places precision
-        price_str = format_decimal(price)
-        quantity_str = format_decimal(quantity)
         
         tpsl_model = None
         if tp_limit is not None or sl_trigger is not None:
-            tp_limit_str = format_decimal(tp_limit) if tp_limit is not None else None
-            sl_trigger_str = format_decimal(sl_trigger) if sl_trigger is not None else None
-            sl_limit_str = format_decimal(sl_limit) if sl_limit is not None else None
+            tp_limit_str = str(tp_limit) if tp_limit is not None else None
+            sl_trigger_str = str(sl_trigger) if sl_trigger is not None else None
+            sl_limit_str = str(sl_limit) if sl_limit is not None else None
             tpsl_model = TpslModel(tp_limit=tp_limit_str, sl_trigger=sl_trigger_str, sl_limit=sl_limit_str)
 
-        wallet = self.get_wallet()
         model = OrderModel(
-            l1owner=wallet.address, # TODO: change to l1_address
+            l1owner=self.l1_address,
             base_token=base_token,
             quote_token=quote_token,
             side=side,
-            price=price_str,
-            quantity=quantity_str,
+            price=price,
+            quantity=quantity,
             order_type=order_type,
             order_mode=order_mode,
             tpsl=tpsl_model,
@@ -209,41 +186,28 @@ class AlphasecSigner:
 
 
     def create_cancel_data(self, order_id: str) -> bytes:
-        wallet = self.get_wallet()
-        model = CancelModel(l1owner=wallet.address, order_id=order_id) # TODO: change to l1_address
+        model = CancelModel(l1owner=self.l1_address, order_id=order_id)
         return bytes([DexCommandCancel]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
         
 
     def create_cancel_all_data(self) -> bytes:
-        wallet = self.get_wallet()
-        model = CancelAllModel(l1owner=wallet.address) # TODO: change to l1_address
+        model = CancelAllModel(l1owner=self.l1_address)
         return bytes([DexCommandCancelAll]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
         
 
-    def create_modify_data(self, order_id: str, new_price: Optional[float], new_qty: Optional[float], order_mode: int) -> bytes:
-        # Format decimal values to strings with 3 decimal places precision
-        new_price_str = format_decimal(new_price) if new_price is not None else None
-        new_qty_str = format_decimal(new_qty) if new_qty is not None else None
-        
-        wallet = self.get_wallet()
-        model = ModifyModel(l1owner=wallet.address, order_id=order_id, new_price=new_price_str, new_qty=new_qty_str, order_mode=order_mode) # TODO: change to l1_address
+    def create_modify_data(self, order_id: str, new_price: float = None, new_qty: float = None, order_mode: int = None) -> bytes:
+        model = ModifyModel(l1owner=self.l1_address, order_id=order_id, new_price=new_price, new_qty=new_qty, order_mode=order_mode)
         return bytes([DexCommandModify]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
 
 
     def create_stop_order_data(self, base_token: str, quote_token: str, stop_price: float, price: float, quantity: float, side: int, order_type: int, order_mode: int) -> bytes:
-        # Format decimal values to strings with 3 decimal places precision
-        stop_price_str = format_decimal(stop_price)
-        price_str = format_decimal(price)
-        quantity_str = format_decimal(quantity)
-        
-        wallet = self.get_wallet()
         model = StopOrderModel(
-            l1owner=wallet.address, # TODO: change to l1_address
+            l1owner=self.l1_address,
             base_token=base_token,
             quote_token=quote_token,
-            stop_price=stop_price_str,
-            price=price_str,
-            quantity=quantity_str,
+            stop_price=stop_price,
+            price=price,
+            quantity=quantity,
             side=side,
             order_type=order_type,
             order_mode=order_mode,
@@ -271,15 +235,17 @@ class AlphasecSigner:
         raw = signed.raw_transaction
         return "0x" + raw.hex()
 
-    def generate_deposit_transaction(self, l1_provider: Web3, token_id, value: int, token_l1_address: str = None) -> str:
+    def generate_deposit_transaction(self, l1_provider: Web3, token_id, value: float, token_l1_address: Optional[str] = None, token_l1_decimals: int = 18) -> str:
         if self.l1_wallet is None:
             raise ValueError("l1_wallet is not set, deposit is only available for l1 wallet")
+
+        value_onchain_unit = int(value * 10 ** token_l1_decimals)
 
         if token_id == ALPHASEC_NATIVE_TOKEN_ID:
             inbox_addr = MAINNET_INBOX_CONTRACT_ADDR if self.network == "mainnet" else KAIROS_INBOX_CONTRACT_ADDR
             contract = l1_provider.eth.contract(address=inbox_addr, abi=NATIVE_L1_ABI)
             tx = contract.functions.depositEth().build_transaction({
-                "value": value,
+                "value": value_onchain_unit,
                 "from": self.l1_address,
                 "gas": 1000000,
                 "nonce": l1_provider.eth.get_transaction_count(self.l1_address),
@@ -293,8 +259,8 @@ class AlphasecSigner:
             erc20_gateway_addr = MAINNET_ERC20_GATEWAY_CONTRACT_ADDR if self.network == "mainnet" else KAIROS_ERC20_GATEWAY_CONTRACT_ADDR
             erc20_contract = l1_provider.eth.contract(address=token_l1_address, abi=ERC20_ABI)
             allowance = erc20_contract.functions.allowance(self.l1_address, erc20_gateway_addr).call()
-            if allowance < value:
-                tx = erc20_contract.functions.approve(erc20_gateway_addr, value).build_transaction({
+            if allowance < value_onchain_unit: # value should be trading unit, not onchain unit (onchain unit == value * 10**decimals in kaia)
+                tx = erc20_contract.functions.approve(erc20_gateway_addr, value_onchain_unit).build_transaction({
                     "from": self.l1_address,
                     "gas": 1000000,
                     "nonce": l1_provider.eth.get_transaction_count(self.l1_address),
@@ -313,7 +279,7 @@ class AlphasecSigner:
             data = l1_provider.codec.encode(['uint256', 'bytes'], [MAX_SUBMISSION_COST, '0x'])
             erc20_router_addr = MAINNET_ERC20_ROUTER_CONTRACT_ADDR if self.network == "mainnet" else KAIROS_ERC20_ROUTER_CONTRACT_ADDR
             contract = l1_provider.eth.contract(address=erc20_router_addr, abi=ERC20_ROUTER_ABI)
-            tx = contract.functions.outboundTransfer(token_l1_address, self.l1_address, value, L2_GAS_LIMIT, L2_GAS_PRICE, data).build_transaction({
+            tx = contract.functions.outboundTransfer(token_l1_address, self.l1_address, value_onchain_unit, L2_GAS_LIMIT, L2_GAS_PRICE, data).build_transaction({
                 "from": self.l1_address,
                 "value": VALUE,
                 "gas": 1000000,
@@ -322,7 +288,7 @@ class AlphasecSigner:
             signed = self.l1_wallet.sign_transaction(tx)
             return "0x" + signed.raw_transaction.hex()
 
-    def generate_withdraw_transaction(self, l2_provider: Web3, token_id: str, value: int, token_l1_address: str = None) -> str:
+    def generate_withdraw_transaction(self, l2_provider: Web3, token_id: str, value: float, token_l1_address: Optional[str] = None) -> str:
         if self.l1_wallet is None:
             raise ValueError("l1_wallet is not set, withdraw is only available for l1 wallet")
 
@@ -332,25 +298,27 @@ class AlphasecSigner:
 
         try:
             balance = l2_provider.provider.make_request("debug_getTokenBalances", [self.l1_address, "latest"]).get("result")
-            print(balance)
-            if int(balance['available'][token_id]) < value:
+            if float(balance['available'][token_id]) < value:
                 raise ValueError("balance is not enough")
         except Exception as e:
             raise ValueError("l2 provider is not ready")
+
+        # All of the tokens have 18 decimals in Alphasec l2 chain
+        value_onchain_unit = int(value * 10 ** 18)
 
         if token_id == ALPHASEC_NATIVE_TOKEN_ID:
             system_contract_addr = ALPHASEC_SYSTEM_CONTRACT_ADDR
             contract = l2_provider.eth.contract(address=system_contract_addr, abi=L2_SYSTEM_ABI)
             tx = contract.functions.withdrawEth(self.l1_address).build_transaction({
                 "from": self.l1_address,
-                "value": value,
+                "value": value_onchain_unit,
                 "gas": 1000000,
                 "nonce": int(time.time() * 1000),
             })
         else:
             erc20_router_addr = ALPHASEC_GATEWAY_ROUTER_CONTRACT_ADDR
             contract = l2_provider.eth.contract(address=erc20_router_addr, abi=L2_ERC20_ROUTER_ABI)
-            tx = contract.functions.outboundTransfer(token_l1_address, self.l1_address, value, '0x').build_transaction({
+            tx = contract.functions.outboundTransfer(token_l1_address, self.l1_address, value_onchain_unit, '0x').build_transaction({
                 "from": self.l1_address,
                 "gas": 1000000,
                 "nonce": int(time.time() * 1000),
@@ -397,7 +365,6 @@ class AlphasecSigner:
         outbox_addr = MAINNET_OUTBOX_CONTRACT_ADDR if self.network == "mainnet" else KAIROS_OUTBOX_CONTRACT_ADDR
         contract = l1_provider.eth.contract(address=outbox_addr, abi=L1_OUTBOX_ABI)
         roots = contract.functions.roots(root).call()
-        print(roots)
         return roots.hex() != "0000000000000000000000000000000000000000000000000000000000000000"
 
     ## only for testing

@@ -4,13 +4,13 @@ A trading SDK for the Alphasec orderbook DEX.
 
 Install
 ```bash
-pip install alphasec-sdk
+pip install alphasec
 ```
 
 Configure (required for examples)
 ```bash
 cd examples
-cp config.json.example config.json
+cp config/config.json.example config/config.json
 # Then edit config.json and fill your values
 ```
 

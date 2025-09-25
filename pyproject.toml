@@ -1,5 +1,5 @@
 [project]
-name = "alphasec-sdk"
+name = "alphasec"
 version = "0.1.0"
 description = "trading sdk for alphasec orderbook dex"
 authors = [

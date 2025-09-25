@@ -6,15 +6,16 @@ from eth_account import Account
 import time
 import web3
 
-from alphasec.api.constants import ALPHASEC_KAIROS_URL, ALPHASEC_MAINNET_URL, KAIROS_URL, MAINNET_URL
+from alphasec.api.constants import ALPHASEC_KAIROS_URL, ALPHASEC_MAINNET_URL, KAIROS_URL, MAINNET_URL, BUY, SELL, LIMIT, MARKET, BASE_MODE, QUOTE_MODE
 from alphasec.transaction.constants import (
     DexCommandSessionCreate,
     DexCommandSessionUpdate,
     DexCommandSessionDelete,
 )
 from alphasec.transaction.sign import AlphasecSigner
+from alphasec.transaction.utils import normalize_price_quantity
 
-from .utils import market_to_market_id, _clean_params
+from .utils import market_to_market_id, _clean_params, split_base_quote_token
 
 class API:
     def __init__(self, url: str, timeout: int = None, signer: AlphasecSigner = None):
@@ -23,19 +24,21 @@ class API:
         self.timeout = timeout
         self.session.headers.update({"Content-Type": "application/json"})
         self._logger = logging.getLogger(__name__)
-        self.token_id_symbol_map, self.symbol_token_id_map, self.token_id_address_map = self.map_token_metadata()
+        self.token_id_symbol_map, self.symbol_token_id_map, self.token_id_address_map, self.token_id_decimals_map = self.map_token_metadata()
         self.signer = signer
 
     def map_token_metadata(self):
         token_id_symbol_map = {}
         symbol_token_id_map = {}
         token_id_address_map = {}
+        token_id_decimals_map = {}
         tokens = self.get_tokens()
         for token in tokens:
             token_id_symbol_map[token['tokenId']] = token['l1Symbol']
             symbol_token_id_map[token['l1Symbol']] = token['tokenId']
             token_id_address_map[token['tokenId']] = token['l1Address']
-        return token_id_symbol_map, symbol_token_id_map, token_id_address_map
+            token_id_decimals_map[token['tokenId']] = token['l1Decimal']
+        return token_id_symbol_map, symbol_token_id_map, token_id_address_map, token_id_decimals_map
 
     def get(self, path: str, params: dict = None):
         response = self.session.get(self.url + path, params=params, timeout=self.timeout)
@@ -137,7 +140,7 @@ class API:
             return None
         return response['result']
 
-    def create_session(self, session_id: str, session_wallet: Account, expiry: int, nonce: int):
+    def create_session(self, session_id: str, session_wallet: Account, expiry: int, nonce: int) -> dict:
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
@@ -146,28 +149,33 @@ class API:
         data = self.signer.create_session_data(DexCommandSessionCreate, session_wallet.address, nonce, expiry)
         tx = self.signer.generate_alphasec_transaction(nonce, data, session_wallet)
         response = self.post(f"/api/v1/wallet/session", params={
-            "sessionId": session_id,
+            "name": session_id,
             "tx": tx,
         })
-        if response['code'] != 200:
-            return False
-        return True
+        print(response)
+        return {
+            "status": response['code'] == 200,
+            "error": response['errMsg'],
+            "tx_hash": response['result'] if "result" in response else None
+        }
 
-    def update_session(self, session_id: str, session_wallet: Account, expiry: int, nonce: int):
+    def update_session(self, session_id: str, session_wallet: Account, expiry: int, nonce: int) -> dict:
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
         data = self.signer.create_session_data(DexCommandSessionUpdate, session_wallet.address, nonce, expiry)
         tx = self.signer.generate_alphasec_transaction(nonce, data, session_wallet)
         response = self.post(f"/api/v1/wallet/session/update", params={
-            "sessionId": session_id,
+            "name": session_id,
             "tx": tx,
         })
-        if response['code'] != 200:
-            return False
-        return True
+        return {
+            "status": response['code'] == 200,
+            "error": response['errMsg'],
+            "tx_hash": response['result'] if "result" in response else None
+        }
 
-    def delete_session(self, session_wallet: Account):
+    def delete_session(self, session_wallet: Account) -> dict:
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
@@ -180,11 +188,13 @@ class API:
         response = self.post(f"/api/v1/wallet/session/delete", params={
             "tx": tx,
         })
-        if response['code'] != 200:
-            return False
-        return True
+        return {
+            "status": response['code'] == 200,
+            "error": response['errMsg'],
+            "tx_hash": response['result'] if "result" in response else None
+        }
 
-    def value_transfer(self, to: str, value: int):
+    def value_transfer(self, to: str, value: float) -> dict:
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
@@ -193,11 +203,13 @@ class API:
         response = self.post(f"/api/v1/wallet/transfer", params={
             "tx": tx,
         })
-        if response['code'] != 200:
-            return False
-        return True
+        return {
+            "status": response['code'] == 200,
+            "error": response['errMsg'],
+            "tx_hash": response['result'] if "result" in response else None
+        }
 
-    def token_transfer(self, to: str, value: int, token: str):
+    def token_transfer(self, to: str, value: float, token: str) -> dict:
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
@@ -206,26 +218,28 @@ class API:
         response = self.post(f"/api/v1/wallet/transfer", params={
             "tx": tx,
         })
-        if response['code'] != 200:
-            return False
-        return True
+        return {
+            "status": response['code'] == 200,
+            "error": response['errMsg'],
+            "tx_hash": response['result'] if "result" in response else None
+        }
 
-    def order(self, market: str, side: int, price: int, quantity: int, order_type: int, order_mode: int, tp_limit: int = None, sl_trigger: int = None, sl_limit: int = None):
+    def order(self, market: str, side: int, price: float, quantity: float, order_type: int, order_mode: int, tp_limit: float = None, sl_trigger: float = None, sl_limit: float = None):
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
-        base_token, quote_token = market.split("/")
-        base_token = self.symbol_token_id_map[base_token]
-        quote_token = self.symbol_token_id_map[quote_token]
-        data = self.signer.create_order_data(base_token, quote_token, side, price, quantity, order_type, order_mode, tp_limit, sl_trigger, sl_limit)
+        base_token, quote_token = split_base_quote_token(market, self.symbol_token_id_map)
+        normalized_price, normalized_quantity = normalize_price_quantity(price, quantity)
+        data = self.signer.create_order_data(base_token, quote_token, side, normalized_price, normalized_quantity, order_type, order_mode, tp_limit, sl_trigger, sl_limit)
         tx = self.signer.generate_alphasec_transaction(int(time.time() * 1000), data)
         response = self.post(f"/api/v1/order", params={
             "tx": tx,
         })
-        print(response)
-        if response['code'] != 200:
-            return False
-        return True
+        return {
+            "status": response['code'] == 200,
+            "error": response['errMsg'],
+            "order_id": response['result'] if "result" in response else None
+        }
 
     def cancel(self, order_id: str):
         if self.signer is None:
@@ -233,12 +247,14 @@ class API:
 
         data = self.signer.create_cancel_data(order_id)
         tx = self.signer.generate_alphasec_transaction(int(time.time() * 1000), data)
-        response = self.post(f"/api/v1/wallet/order/cancel", params={
+        response = self.post(f"/api/v1/order/cancel", params={
             "tx": tx,
         })
-        if response['code'] != 200:
-            return False
-        return True
+        return {
+            "status": response['code'] == 200,
+            "error": response['errMsg'],
+            "order_id": response['result'] if "result" in response else None
+        }
 
     def cancel_all(self):
         if self.signer is None:
@@ -246,42 +262,58 @@ class API:
 
         data = self.signer.create_cancel_all_data()
         tx = self.signer.generate_alphasec_transaction(int(time.time() * 1000), data)
-        response = self.post(f"/api/v1/wallet/order/cancel/all", params={
+        response = self.post(f"/api/v1/order/cancel/all", params={
             "tx": tx,
         })
-        if response['code'] != 200:
-            return False
-        return True
+        return {
+            "status": response['code'] == 200,
+            "error": response['errMsg'],
+            "order_id": response['result'] if "result" in response else None
+        }
 
-    def modify(self, order_id: str, new_price: int = None, new_qty: int = None, order_mode: int = None):
+    def modify(self, order_id: str, new_price: float = None, new_qty: float = None, order_mode: int = None):
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
-        data = self.signer.create_modify_data(order_id, new_price, new_qty, order_mode)
+        normalized_price, normalized_quantity = normalize_price_quantity(new_price, new_qty)
+        data = self.signer.create_modify_data(order_id, normalized_price, normalized_quantity, order_mode)
         tx = self.signer.generate_alphasec_transaction(int(time.time() * 1000), data)
-        response = self.post(f"/api/v1/wallet/order/modify", params={
+        response = self.post(f"/api/v1/order/modify", params={
             "tx": tx,
         })
-        if response['code'] != 200:
-            return False
-        return True
+        return {
+            "status": response['code'] == 200,
+            "error": response['errMsg'],
+            "order_id": response['result'] if "result" in response else None
+        }
 
-    def stop_order(self, base_token: str, quote_token: str, stop_price: int, price: int, quantity: int, side: int, order_type: int, order_mode: int):
+    def stop_order(self, market: str, stop_price: float, price: float, quantity: float, side: int, order_type: int, order_mode: int):
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
+        if side not in [BUY, SELL]:
+            raise ValueError("Invalid side")
+        if order_type not in [LIMIT, MARKET]:
+            raise ValueError("Invalid order type")
+        if order_mode not in [BASE_MODE, QUOTE_MODE]:
+            raise ValueError("Invalid order mode")
 
-        data = self.signer.create_stop_order_data(base_token, quote_token, stop_price, price, quantity, side, order_type, order_mode)
+        base_token, quote_token = split_base_quote_token(market, self.symbol_token_id_map)
+        normalized_price, normalized_quantity = normalize_price_quantity(price, quantity)
+        normalized_stop_price, _ = normalize_price_quantity(stop_price, quantity)
+        data = self.signer.create_stop_order_data(base_token, quote_token, normalized_stop_price, normalized_price, normalized_quantity, side, order_type, order_mode)
         tx = self.signer.generate_alphasec_transaction(int(time.time() * 1000), data)
-        response = self.post(f"/api/v1/wallet/order/stop", params={
+        response = self.post(f"/api/v1/order/trigger", params={
             "tx": tx,
         })
-        if response['code'] != 200:
-            return False
-        return True
+        return {
+            "status": response['code'] == 200,
+            "error": response['errMsg'],
+            "order_id": response['result'] if "result" in response else None
+        }
 
     # value is in wei
     # symbol should be uppercase
-    def withdraw_to_kaia(self, symbol: str, value: int, token_l1_address: str = None):
+    def withdraw_to_kaia(self, symbol: str, value: float, token_l1_address: str = None):
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
@@ -293,13 +325,25 @@ class API:
 
         token_id = self.symbol_token_id_map[symbol]
         tx = self.signer.generate_withdraw_transaction(l2_provider, token_id, value, token_l1_address)
-        txHash = l2_provider.eth.send_raw_transaction(tx)
-        receipt = l2_provider.eth.wait_for_transaction_receipt(txHash)
-        return receipt
+        response = self.post(f"/api/v1/wallet/withdraw", params={
+            "tx": tx,
+        })
+        if response['code'] == 200:
+            return {
+                "status": True,
+                "error": None,
+                "tx_hash": response['result'] if "result" in response else None
+            }
+        else:
+            return {
+                "status": False,
+                "error": 'withdraw failed',
+                "tx_hash": response['result'] if "result" in response else None
+            }
 
     # value is in wei
     # symbol should be uppercase
-    def deposit_to_alphasec(self, symbol: str, value: int, token_l1_address: str = None):
+    def deposit_to_alphasec(self, symbol: str, value: float, token_l1_address: str = None):
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
@@ -313,4 +357,15 @@ class API:
         tx = self.signer.generate_deposit_transaction(l1_provider, token_id, value, token_l1_address)
         txHash = l1_provider.eth.send_raw_transaction(tx)
         receipt = l1_provider.eth.wait_for_transaction_receipt(txHash)
-        return receipt
+        if receipt.status == 1:
+            return {
+                "status": True,
+                "error": None,
+                "tx_hash": txHash
+            }
+        else:
+            return {
+                "status": False,
+                "error": 'deposit failed',
+                "tx_hash": txHash
+            }
