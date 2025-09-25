@@ -3,16 +3,12 @@ Basic example showing how to transfer ERC-20 tokens.
 This example requires a signer (private key).
 """
 import os
-import sys
-
-# Add parent directory to path to import alphasec
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from alphasec import Agent, load_config, AlphasecSigner
 
 def main():
     # Load config using alphasec's load_config function
-    config = load_config(os.path.dirname(os.path.dirname(__file__)))
+    config = load_config(os.path.dirname(__file__) + "/../config")
     
     # Create signer with config
     signer = AlphasecSigner(config)

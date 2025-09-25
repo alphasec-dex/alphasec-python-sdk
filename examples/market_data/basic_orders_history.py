@@ -4,31 +4,24 @@ This example only requires a base_url, no signer needed.
 """
 import json
 import os
-import sys
 
-# Add parent directory to path to import alphasec
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-
-from alphasec import Agent
+from alphasec import Agent, load_config
 
 def main():
     # Load config
-    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
-    with open(config_path) as f:
-        config = json.load(f)
+    config = load_config(os.path.dirname(__file__) + "/../config")
     
     # Initialize agent without signer for read-only operations
-    agent = Agent(config['base_url'])
-    
-    wallet_address = config['wallet_address']
+    agent = Agent(config['api_url'])
+    l1_address = config['l1_address']
     market = "KAIA/USDT"
     
-    print(f"=== Getting Open Orders for {wallet_address} ===")
-    open_orders = agent.get_open_orders(wallet_address, market, limit=10)
+    print(f"=== Getting Open Orders for {l1_address} ===")
+    open_orders = agent.get_open_orders(l1_address, market, limit=10)
     print(json.dumps(open_orders, indent=2))
     
-    print(f"\n=== Getting Filled/Canceled Orders for {wallet_address} ===")
-    history = agent.get_filled_canceled_orders(wallet_address, market, limit=10)
+    print(f"\n=== Getting Filled/Canceled Orders for {l1_address} ===")
+    history = agent.get_filled_canceled_orders(l1_address, market, limit=10)
     print(json.dumps(history, indent=2))
     
     # Example of getting specific order by ID (if you have one)

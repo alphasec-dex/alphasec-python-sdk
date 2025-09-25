@@ -3,16 +3,12 @@ Basic example showing how to get ticker information.
 This example only requires a base_url, no signer needed.
 """
 import os
-import sys
-
-# Add parent directory to path to import alphasec
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from alphasec import Agent, load_config
 
 def main():
     # Load config using alphasec's load_config function
-    config = load_config(os.path.dirname(os.path.dirname(__file__)))
+    config = load_config(os.path.dirname(__file__) + "/../config")
     
     # Initialize agent without signer for read-only operations
     agent = Agent(config['api_url'])

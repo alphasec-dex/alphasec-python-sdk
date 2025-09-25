@@ -3,17 +3,14 @@ Basic example showing how to place stop orders.
 This example requires a signer (private key).
 """
 import os
-import sys
 
-# Add parent directory to path to import alphasec
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from alphasec import Agent, load_config, AlphasecSigner
+from alphasec import Agent, AlphasecSigner, load_config
 from alphasec.api.constants import BASE_MODE, BUY, LIMIT
 
 def main():
     # Load config using alphasec's load_config function
-    config = load_config(os.path.dirname(os.path.dirname(__file__)))
+    config = load_config(os.path.dirname(__file__) + "/../config")
     
     # Create signer with config
     signer = AlphasecSigner(config)
@@ -25,11 +22,10 @@ def main():
     # Place a stop order: buy GRND at 4 USDT when price hits 3 USDT
     # Note: stop_order takes different parameters than regular order
     result = agent.stop_order(
-        base_token="GRND", 
-        quote_token="USDT", 
+        market="GRND/USDT",
         stop_price=3, 
         price=4, 
-        quantity=20, 
+        quantity=2, 
         side=BUY, 
         order_type=LIMIT, 
         order_mode=BASE_MODE

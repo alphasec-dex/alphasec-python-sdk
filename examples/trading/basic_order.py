@@ -3,17 +3,13 @@ Basic example showing how to place and cancel orders.
 This example requires a signer (private key).
 """
 import os
-import sys
-
-# Add parent directory to path to import alphasec
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from alphasec import Agent, load_config, AlphasecSigner
 from alphasec.api.constants import BASE_MODE, BUY, SELL, LIMIT
 
 def main():
     # Load config using alphasec's load_config function
-    config = load_config(os.path.dirname(os.path.dirname(__file__)))
+    config = load_config(os.path.dirname(__file__) + "/../config")
     
     # Create signer with config
     signer = AlphasecSigner(config)
@@ -30,8 +26,8 @@ def main():
         print("Order placed successfully!")
         
         # Get open orders to see our order
-        wallet_address = config['l1_address']
-        open_orders = agent.get_open_orders(wallet_address, "GRND/USDT", limit=5)
+        l1_address = config['l1_address']
+        open_orders = agent.get_open_orders(l1_address, "GRND/USDT", limit=5)
         print("\nCurrent open orders:")
         print(open_orders)
         
