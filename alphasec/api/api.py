@@ -152,7 +152,6 @@ class API:
             "name": session_id,
             "tx": tx,
         })
-        print(response)
         return {
             "status": response['code'] == 200,
             "error": response['errMsg'],
@@ -313,9 +312,12 @@ class API:
 
     # value is in wei
     # symbol should be uppercase
-    def withdraw_to_kaia(self, symbol: str, value: float, token_l1_address: str = None):
+    def withdraw_to_kaia(self, symbol: str, value: float):
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
+
+        token_id = self.symbol_token_id_map[symbol]
+        token_l1_address = self.token_id_address_map.get(token_id)
 
         l2_provider = None
         if self.signer.network == "mainnet":
@@ -323,7 +325,6 @@ class API:
         else:
             l2_provider = web3.Web3(web3.HTTPProvider(ALPHASEC_KAIROS_URL))
 
-        token_id = self.symbol_token_id_map[symbol]
         tx = self.signer.generate_withdraw_transaction(l2_provider, token_id, value, token_l1_address)
         response = self.post(f"/api/v1/wallet/withdraw", params={
             "tx": tx,
@@ -343,9 +344,12 @@ class API:
 
     # value is in wei
     # symbol should be uppercase
-    def deposit_to_alphasec(self, symbol: str, value: float, token_l1_address: str = None):
+    def deposit_to_alphasec(self, symbol: str, value: float):
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
+
+        token_id = self.symbol_token_id_map[symbol]
+        token_l1_address = self.token_id_address_map.get(token_id)
 
         l1_provider = None
         if self.signer.network == "mainnet":
@@ -353,7 +357,6 @@ class API:
         else:
             l1_provider = web3.Web3(web3.HTTPProvider(KAIROS_URL))
 
-        token_id = self.symbol_token_id_map[symbol]
         tx = self.signer.generate_deposit_transaction(l1_provider, token_id, value, token_l1_address)
         txHash = l1_provider.eth.send_raw_transaction(tx)
         receipt = l1_provider.eth.wait_for_transaction_receipt(txHash)

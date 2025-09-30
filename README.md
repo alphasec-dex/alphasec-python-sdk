@@ -1,20 +1,26 @@
-Alphasec Python SDK
+# Alphasec Python SDK
 
 A trading SDK for the Alphasec orderbook DEX.
 
-Install
+[![PyPI version](https://badge.fury.io/py/alphasec.svg)](https://badge.fury.io/py/alphasec)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+
+## 🚀 Quick Start
+
+### Install (Not yet deployed)
 ```bash
 pip install alphasec
 ```
 
-Configure (required for examples)
+### Configure (required for examples)
 ```bash
 cd examples
 cp config/config.json.example config/config.json
 # Then edit config.json and fill your values
 ```
 
-Minimal config.json
+### Minimal config.json
 ```json
 {
   "network": "kairos",
@@ -26,10 +32,38 @@ Minimal config.json
 }
 ```
 
-Quick start
+### Run an example
 ```bash
 python examples/market_data/basic_tickers.py
 ```
 
-Notes
-- Do NOT commit real private keys. Use test keys on testnet first.
+
+## 🌐 Network Information
+
+### Kairos Testnet
+- **API URL**: `https://api-testnet.alphasec.trade`
+- **Websocket URL**: `wss://api-testnet.alphasec.trade/ws`
+- **Network**: `kairos`
+- **L1 Chain ID**: 1001 (Kaia Kairos)
+- **L2 Chain ID**: 41001 (AlphaSec L2)
+
+### Mainnet
+- **API URL**: `https://api.alphasec.trade`
+- **Websocket URL**: `wss://api.alphasec.trade/ws`
+- **Network**: `mainnet`
+- **L1 Chain ID**: 8217 (Kaia Mainnet)
+- **L2 Chain ID**: 48217 (AlphaSec L2)
+
+## 🔐 Security
+
+⚠️ **Important Security Notes:**
+
+- Never commit private keys to version control
+- Use environment variables or secure key management
+- Always test on kairos testnet before mainnet
+- Verify transaction details before signing
+- Blockchain transactions are irreversible
+
+## ⚠️ Disclaimer
+
+This SDK is provided as-is. Trading cryptocurrencies involves substantial risk and may result in significant losses. Always do your own research and never invest more than you can afford to lose. The developers are not responsible for any trading losses incurred while using this SDK.

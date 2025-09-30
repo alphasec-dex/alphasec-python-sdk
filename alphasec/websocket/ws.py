@@ -123,7 +123,7 @@ class WebsocketManager(threading.Thread):
 
         active_subscriptions = self.active_subscriptions[identifier]
         if len(active_subscriptions) == 0:
-            print("Websocket message from an unexpected subscription:", message, identifier)
+            logging.error("Websocket message from an unexpected subscription:", message, identifier)
         else:
             for active_subscription in active_subscriptions:
                 ws_msg = convert_to_snake_case(ws_msg)

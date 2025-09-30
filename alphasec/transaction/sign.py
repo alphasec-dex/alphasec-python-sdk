@@ -22,6 +22,7 @@ from .schemas import (
 )
 
 from .constants import (
+    ALPHASEC_CHAIN_ID,
     ALPHASEC_GATEWAY_ROUTER_CONTRACT_ADDR,
     ALPHASEC_ORDER_CONTRACT_ADDR,
     ALPHASEC_SYSTEM_CONTRACT_ADDR,
@@ -134,7 +135,6 @@ class AlphasecSigner:
             l1signature=signature_b64,
             metadata=metadata.decode("utf-8") if isinstance(metadata, (bytes, bytearray)) and metadata else None,
         )
-        print(model.to_wire())
         payload_bytes = json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
         return bytes([DexCommandSession]) + payload_bytes
 
@@ -228,7 +228,7 @@ class AlphasecSigner:
             "value": 0,
             "nonce": timestamp_ms if timestamp_ms is not None else 0,
             "data": data,
-            "chainId": 412346,
+            "chainId": ALPHASEC_CHAIN_ID,
         }
 
         signed = wallet.sign_transaction(tx)
@@ -295,13 +295,6 @@ class AlphasecSigner:
         endpoint_url = ALPHASEC_MAINNET_URL if self.network == "mainnet" else ALPHASEC_KAIROS_URL
         if l2_provider.provider.endpoint_uri != endpoint_url:
             raise ValueError("withdraw is only available for l2 provider")
-
-        try:
-            balance = l2_provider.provider.make_request("debug_getTokenBalances", [self.l1_address, "latest"]).get("result")
-            if float(balance['available'][token_id]) < value:
-                raise ValueError("balance is not enough")
-        except Exception as e:
-            raise ValueError("l2 provider is not ready")
 
         # All of the tokens have 18 decimals in Alphasec l2 chain
         value_onchain_unit = int(value * 10 ** 18)

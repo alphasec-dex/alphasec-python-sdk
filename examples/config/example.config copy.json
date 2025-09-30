@@ -1,6 +1,7 @@
 {
+    "comments": "Make a copy of this file and save to `config.json`. Fill in your private key and other settings. Please don't use real private keys.",
     "network": "kairos",
-    "api_url": "https://api-dev.dexor.trade",
+    "api_url": "https://api-testnet.alphasec.trade",
     "l1_address": "0x70dBb395AF2eDCC2833D803C03AbBe56ECe7c25c",
     "l1_wallet": "0xca8c450e6775a185f2df9b41b97f03906343f0703bdeaa86200caae8605d0ff8",
     "l2_wallet": "0x71d9575098cdda737cd34ca12ee28efa574992692ce5d98a042a1b63f93d997d",

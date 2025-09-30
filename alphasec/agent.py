@@ -6,7 +6,7 @@ from alphasec.transaction.sign import AlphasecSigner
 from alphasec.api.utils import market_to_market_id
 
 import logging
-logging.basicConfig(level=logging.DEBUG)
+# logging.basicConfig(level=logging.DEBUG)
 
 class Agent:
     def __init__(self, base_url: str, signer: Optional[AlphasecSigner] = None, timeout: Optional[int] = None):
@@ -119,11 +119,37 @@ class Agent:
     def token_transfer(self, to: str, value: float, token: str) -> bool:
         return self.api.token_transfer(to, value, token)
 
-    def withdraw(self, token: str, value: float, token_l1_address: str = None) -> bool:
-        return self.api.withdraw_to_kaia(token, value, token_l1_address)
+    def withdraw(self, token: str, value: float) -> bool:
+        # balance check
+        if self.api.signer is None:
+            raise ValueError("Only read-only API is available when signer is not set")
 
-    def deposit(self, token: str, value: float, token_l1_address: str = None) -> bool:
-        return self.api.deposit_to_alphasec(token, value, token_l1_address)
+        balances = self.get_balance(self.api.signer.l1_address)
+        try:
+            token_id = self.api.symbol_token_id_map[token]
+        except KeyError:
+            raise ValueError(f"Unknown token symbol: {token}")
+
+        # balances may be a list of { tokenId, locked, unlocked }
+        # or a dict with { available: { [tokenId]: amount } }
+        available: float | int | str = 0
+        if isinstance(balances, list):
+            matched = next((b for b in balances if str(b.get('tokenId')) == str(token_id)), None)
+            if matched is not None:
+                available = matched.get('unlocked', 0)
+
+        try:
+            available_float = float(available)
+        except (TypeError, ValueError):
+            available_float = 0.0
+
+        if available_float < value:
+            raise ValueError("Insufficient balance")
+
+        return self.api.withdraw_to_kaia(token, value)
+
+    def deposit(self, token: str, value: float) -> bool:
+        return self.api.deposit_to_alphasec(token, value)
 
     # Market data helpers
     def get_ticker(self, market: str) -> dict:
