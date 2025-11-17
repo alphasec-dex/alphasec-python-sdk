@@ -152,6 +152,9 @@ class Agent:
         return self.api.deposit_to_alphasec(token, value)
 
     # Market data helpers
+    def get_depth(self, market: str, limit: int = 100) -> dict:
+        return self.api.get_depth(market, limit)
+
     def get_ticker(self, market: str) -> dict:
         return self.api.get_ticker(market)
 

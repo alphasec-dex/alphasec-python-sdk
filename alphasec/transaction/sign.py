@@ -1,4 +1,5 @@
 import time
+from ens.ens import default
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 import json
@@ -22,10 +23,11 @@ from .schemas import (
 )
 
 from .constants import (
-    ALPHASEC_CHAIN_ID,
     ALPHASEC_GATEWAY_ROUTER_CONTRACT_ADDR,
+    ALPHASEC_MAINNET_CHAIN_ID,
     ALPHASEC_ORDER_CONTRACT_ADDR,
     ALPHASEC_SYSTEM_CONTRACT_ADDR,
+    ALPHASEC_TESTNET_CHAIN_ID,
     ALPHASEC_ZK_INTERFACE_CONTRACT_ADDR,
     ALPHASEC_NATIVE_TOKEN_ID,
     KAIROS_ERC20_GATEWAY_CONTRACT_ADDR,
@@ -66,8 +68,10 @@ class AlphasecSigner:
     session_enabled: bool
     network: Literal["mainnet", "kairos"]
     alphasec_endpoint_url: str
+    chain_id: int
 
     def __init__(self, config: dict):
+        default_chain_id = ALPHASEC_TESTNET_CHAIN_ID if config["network"] == "kairos" else ALPHASEC_MAINNET_CHAIN_ID
         if not "l1_address" in config:
             raise ValueError("l1_address should be set")
         self.l1_address = config["l1_address"]
@@ -79,6 +83,10 @@ class AlphasecSigner:
             self.session_enabled = config["session_enabled"]
         if "network" in config:
             self.network = config["network"]
+        if "chain_id" in config:
+            self.chain_id = config["chain_id"]
+        else:
+            self.chain_id = default_chain_id
 
 
     def get_wallet(self):
@@ -91,7 +99,7 @@ class AlphasecSigner:
             "domain": {
                 "name": "DEXSignTransaction",
                 "version": "1",
-                "chainId": 1001,
+                "chainId": self.chain_id,
                 "verifyingContract": "0x0000000000000000000000000000000000000000",
             },
             "types": {
@@ -228,7 +236,7 @@ class AlphasecSigner:
             "value": 0,
             "nonce": timestamp_ms if timestamp_ms is not None else 0,
             "data": data,
-            "chainId": ALPHASEC_CHAIN_ID,
+            "chainId": self.chain_id,
         }
 
         signed = wallet.sign_transaction(tx)

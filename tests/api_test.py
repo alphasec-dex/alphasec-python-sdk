@@ -11,6 +11,12 @@ def test_get_market_list():
     markets = api.get_market_list()
     assert len(markets) > 0
 
+def test_get_depth():
+    config = load_config(os.path.dirname(__file__) + "/config")
+    api = API(url=config["api_url"])
+    depth = api.get_depth("KAIA/USDT")
+    assert len(depth) > 0
+
 def test_get_ticker():
     config = load_config(os.path.dirname(__file__) + "/config")
     api = API(url=config["api_url"])

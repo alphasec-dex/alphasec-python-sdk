@@ -72,6 +72,11 @@ class API:
         response = self.get("/api/v1/market")
         return response['result']
 
+    def get_depth(self, market: str, limit: int = 100):
+        market_id = market_to_market_id(market, self.symbol_token_id_map)
+        response = self.get(f"/api/v1/market/depth?marketId={market_id}&limit={limit}")
+        return response['result']
+
     def get_ticker(self, market: str):
         market_id = market_to_market_id(market, self.symbol_token_id_map)
         response = self.get(f"/api/v1/market/ticker?marketId={market_id}")
