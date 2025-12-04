@@ -14,7 +14,7 @@ def load_config(path: str):
         raise ValueError("l1_address should be set")
     if "l1_wallet" not in config and "l2_wallet" not in config:
         raise ValueError("l1_wallet, l2_wallet are not set")
-    if "session_enabled" in config and "l2_wallet" not in config:
+    if "session_enabled" in config and config["session_enabled"] and "l2_wallet" not in config:
         raise ValueError("session_enabled is set but l2_wallet is not set")
 
     return config

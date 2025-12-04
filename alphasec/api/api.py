@@ -34,8 +34,8 @@ class API:
         token_id_decimals_map = {}
         tokens = self.get_tokens()
         for token in tokens:
-            token_id_symbol_map[token['tokenId']] = token['l1Symbol']
-            symbol_token_id_map[token['l1Symbol']] = token['tokenId']
+            token_id_symbol_map[token['tokenId']] = token['l2Symbol']
+            symbol_token_id_map[token['l2Symbol']] = token['tokenId']
             token_id_address_map[token['tokenId']] = token['l1Address']
             token_id_decimals_map[token['tokenId']] = token['l1Decimal']
         return token_id_symbol_map, symbol_token_id_map, token_id_address_map, token_id_decimals_map
