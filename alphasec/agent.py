@@ -187,6 +187,9 @@ class Agent:
     def get_sessions(self, addr: str) -> list[dict]:
         return self.api.get_sessions(addr)
 
+    def get_transfer_history(self, addr: str, token_id: Optional[int] = None, from_msec: Optional[int] = None, to_msec: Optional[int] = None, limit: int = 100) -> list[dict]:
+        return self.api.get_transfer_history(addr, token_id, from_msec, to_msec, limit)
+
     # Session management
     def create_session(self, session_id: str, session_wallet, expiry: int, nonce: int) -> dict:
         return self.api.create_session(session_id, session_wallet, expiry, nonce)
