@@ -234,7 +234,8 @@ class API:
 
         base_token, quote_token = split_base_quote_token(market, self.symbol_token_id_map)
         normalized_price, normalized_quantity = normalize_price_quantity(price, quantity)
-        data = self.signer.create_order_data(base_token, quote_token, side, normalized_price, normalized_quantity, order_type, order_mode, tp_limit, sl_trigger, sl_limit)
+        adjusted_quantity = normalized_quantity if order_type == LIMIT else quantity
+        data = self.signer.create_order_data(base_token, quote_token, side, normalized_price, adjusted_quantity, order_type, order_mode, tp_limit, sl_trigger, sl_limit)
         tx = self.signer.generate_alphasec_transaction(int(time.time() * 1000), data)
         response = self.post(f"/api/v1/order", params={
             "tx": tx,
