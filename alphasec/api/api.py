@@ -109,6 +109,42 @@ class API:
         response = self.get(f"/api/v1/wallet/session?address={addr}")
         return response['result']
 
+    def get_transfer_history(self, addr: str, token_id: int = None, from_msec: int = None, to_msec: int = None, limit: int = 100):
+        """
+        Get transfer history for a wallet address on the L2 network.
+
+        Args:
+            addr: Wallet address to query
+            token_id: Filter results by specific token (optional)
+            from_msec: Start timestamp in milliseconds (optional, default: 0)
+            to_msec: End timestamp in milliseconds (optional, default: current time)
+            limit: Maximum records to return (default: 100, max: 500)
+
+        Returns:
+            List of transfer records with fields:
+            - id: Transfer ID
+            - fromAddress: Sender address
+            - toAddress: Recipient address
+            - txType: Transaction type
+            - tokenId: Token ID
+            - amount: Transfer amount (string for precision)
+            - status: Transfer status (e.g., "CONFIRMED")
+            - timestamp: Timestamp in milliseconds
+            - hash: Transaction hash
+        """
+        if not is_address(addr):
+            raise ValueError(f"Invalid address: {addr}")
+        addr = to_checksum_address(addr)
+        params = _clean_params({
+            "address": addr,
+            "token_id": token_id,
+            "from": from_msec,
+            "to": to_msec,
+            "limit": min(limit, 500),  # max 500 per API docs
+        })
+        response = self.get("/api/v1/wallet/transfer", params=params)
+        return response['result']
+
     def get_open_orders(self, addr: str, market: str, limit: int = 100, from_msec: int = None, end_msec: int = None):
         if not is_address(addr):
             raise ValueError(f"Invalid address: {addr}")
