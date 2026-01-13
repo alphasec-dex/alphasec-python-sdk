@@ -1,9 +1,11 @@
 import os
 import time
+import pytest
 from alphasec.transaction.utils import load_config
 from alphasec.websocket.ws import WebsocketManager
 
 
+@pytest.mark.skip(reason="Integration test - requires live websocket connection")
 def test_trades_subscription():
     config = load_config(os.path.dirname(__file__) + "/config")
 

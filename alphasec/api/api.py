@@ -177,7 +177,7 @@ class API:
 
     def get_order_by_id(self, order_id: str):
         response = self.get(f"/api/v1/order/{order_id}")
-        if response['code'] == 404:
+        if response.get('code') == 404 or 'result' not in response:
             return None
         return response['result']
 
