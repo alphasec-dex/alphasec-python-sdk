@@ -98,7 +98,10 @@ async def test_get_order_by_id():
 # These tests are skipped by default as they require integration environment
 # Set ALPHASEC_INTEGRATION_TEST=1 to run these tests
 
-SKIP_INTEGRATION = pytest.mark.skip(reason="Integration test - requires funded wallet and live API")
+SKIP_INTEGRATION = pytest.mark.skipif(
+    not os.environ.get("ALPHASEC_INTEGRATION_TEST"),
+    reason="Integration test - set ALPHASEC_INTEGRATION_TEST=1 to run",
+)
 
 
 @SKIP_INTEGRATION

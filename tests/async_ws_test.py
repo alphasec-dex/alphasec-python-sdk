@@ -3,6 +3,7 @@
 Tests for AsyncWebsocketManager using pytest-asyncio.
 Uses mock websocket server for unit testing.
 """
+
 import asyncio
 import json
 import os
@@ -12,13 +13,29 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
+from websockets.exceptions import ConnectionClosed
 
 from alphasec.transaction.utils import load_config
 from alphasec.websocket.async_ws import AsyncWebsocketManager
 
+# Integration test gate: set ALPHASEC_INTEGRATION_TEST=1 to run.
+SKIP_INTEGRATION = pytest.mark.skipif(
+    not os.environ.get("ALPHASEC_INTEGRATION_TEST"),
+    reason="Integration test - set ALPHASEC_INTEGRATION_TEST=1 to run",
+)
+
+# Sentinel queued by close() so a pending __anext__ wakes up and raises
+# ConnectionClosed, mirroring how a real connection ends iteration.
+_CLOSE_SENTINEL = object()
+
 
 class MockWebSocket:
-    """Mock websocket for testing without real server connection."""
+    """Mock websocket for testing without real server connection.
+
+    Implements the async-iterator protocol used by run()'s
+    ``async for message in self._ws`` receive pump: queued messages are
+    yielded in order and ConnectionClosed is raised once closed.
+    """
 
     def __init__(self):
         self.sent_messages: List[str] = []
@@ -43,9 +60,22 @@ class MockWebSocket:
         except asyncio.CancelledError:
             raise
 
+    def __aiter__(self) -> "MockWebSocket":
+        return self
+
+    async def __anext__(self) -> str:
+        if self.closed and self._recv_queue.empty():
+            raise ConnectionClosed(None, None)
+        item = await self._recv_queue.get()
+        if item is _CLOSE_SENTINEL:
+            raise ConnectionClosed(None, None)
+        return item
+
     async def close(self) -> None:
         self.closed = True
         self._close_event.set()
+        # Wake up a pending __anext__ so the receive loop observes the close.
+        await self._recv_queue.put(_CLOSE_SENTINEL)
 
     async def add_message(self, message: Dict[str, Any]) -> None:
         """Add a message to be received by the websocket."""
@@ -100,14 +130,14 @@ class TestAsyncWebsocketManagerConnection:
         """Test that connect sets ws_ready to True."""
         manager = AsyncWebsocketManager("http://localhost:8080")
 
-        with patch("websockets.connect", return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_ws))):
-            # We need to use a context manager mock
-            async def mock_connect(*args, **kwargs):
-                return mock_ws
+        # Patch the name bound in async_ws (imported from
+        # websockets.asyncio.client), not the websockets top-level attribute.
+        async def mock_connect(*args, **kwargs):
+            return mock_ws
 
-            with patch("websockets.connect", mock_connect):
-                await manager.connect()
-                assert manager.ws_ready is True
+        with patch("alphasec.websocket.async_ws.connect", mock_connect):
+            await manager.connect()
+            assert manager.ws_ready is True
 
     @pytest.mark.asyncio
     async def test_stop_closes_connection(self, mock_ws):
@@ -252,7 +282,9 @@ class TestAsyncWebsocketManagerUnsubscribe:
         assert sent_msg["params"]["channels"] == ["trade@5_2"]
 
     @pytest.mark.asyncio
-    async def test_unsubscribe_does_not_send_message_when_other_subscribers(self, mock_ws):
+    async def test_unsubscribe_does_not_send_message_when_other_subscribers(
+        self, mock_ws
+    ):
         """Test that unsubscribe does not send message when other subscribers remain."""
         manager = AsyncWebsocketManager("http://localhost:8080")
         manager._ws = mock_ws
@@ -398,7 +430,9 @@ class TestAsyncWebsocketManagerChannelIdentifiers:
         from alphasec.websocket.async_ws import channel_to_identifier
 
         assert (
-            channel_to_identifier("userEvent@0x70dBb395AF2eDCC2833D803C03AbBe56ECe7c25c")
+            channel_to_identifier(
+                "userEvent@0x70dBb395AF2eDCC2833D803C03AbBe56ECe7c25c"
+            )
             == "userevent:0x70dbb395af2edcc2833d803c03abbe56ece7c25c"
         )
 
@@ -410,8 +444,235 @@ class TestAsyncWebsocketManagerChannelIdentifiers:
             channel_to_identifier("unknown@channel")
 
 
+def make_connected_manager(mock_ws: MockWebSocket) -> AsyncWebsocketManager:
+    """Build a manager wired to a mock connection, bypassing connect()."""
+    manager = AsyncWebsocketManager("http://localhost:8080")
+    manager._ws = mock_ws
+    manager.ws_ready = True
+    return manager
+
+
+def make_trade_msg(seq: int = 0) -> Dict[str, Any]:
+    """Build a trade subscription message for channel trade@5_2."""
+    return {
+        "jsonrpc": "2.0",
+        "method": "subscription",
+        "params": {
+            "channel": "trade@5_2",
+            "result": [
+                {
+                    "hash": "0x123",
+                    "marketId": "5_2",
+                    "side": 0,
+                    "px": "100.00",
+                    "sz": seq,
+                    "tid": f"trade{seq}",
+                    "time": 1234567890 + seq,
+                    "users": ["0x123", "0x456"],
+                }
+            ],
+        },
+    }
+
+
+async def wait_until(predicate, timeout: float = 2.0) -> None:
+    """Poll a condition instead of sleeping a fixed time (less flaky)."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not predicate():
+        if loop.time() > deadline:
+            raise TimeoutError("condition not met within timeout")
+        await asyncio.sleep(0.01)
+
+
+class TestAsyncWebsocketManagerRunLoop:
+    """Tests that drive run() (the receive pump) as a real task."""
+
+    @pytest.mark.asyncio
+    async def test_run_delivers_message_to_callback(self):
+        mock_ws = MockWebSocket()
+        manager = make_connected_manager(mock_ws)
+        received: List[Any] = []
+        await manager.subscribe("trade@5_2", lambda x: received.append(x))
+
+        run_task = asyncio.create_task(manager.run())
+        try:
+            await mock_ws.add_message(make_trade_msg(seq=1))
+            await wait_until(lambda: len(received) == 1)
+            # Payload is params.result converted to snake_case
+            assert received[0][0]["market_id"] == "5_2"
+        finally:
+            await manager.stop()
+            await asyncio.wait_for(run_task, timeout=2)
+
+    @pytest.mark.asyncio
+    async def test_run_survives_callback_exception(self):
+        mock_ws = MockWebSocket()
+        manager = make_connected_manager(mock_ws)
+        calls: List[Any] = []
+
+        def flaky_callback(payload):
+            calls.append(payload)
+            if len(calls) == 1:
+                raise KeyError("user callback bug")
+
+        await manager.subscribe("trade@5_2", flaky_callback)
+
+        run_task = asyncio.create_task(manager.run())
+        try:
+            await mock_ws.add_message(make_trade_msg(seq=1))
+            await wait_until(lambda: len(calls) == 1)
+            assert not run_task.done(), "run() died on a callback exception"
+
+            await mock_ws.add_message(make_trade_msg(seq=2))
+            await wait_until(lambda: len(calls) == 2)
+            assert calls[1][0]["tid"] == "trade2"
+        finally:
+            await manager.stop()
+            await asyncio.wait_for(run_task, timeout=2)
+
+    @pytest.mark.asyncio
+    async def test_stop_terminates_run_and_cleans_ping_task(self):
+        mock_ws = MockWebSocket()
+        manager = make_connected_manager(mock_ws)
+
+        run_task = asyncio.create_task(manager.run())
+        await wait_until(lambda: manager._ping_task is not None)
+        ping_task = manager._ping_task
+
+        await manager.stop()
+        await asyncio.wait_for(run_task, timeout=2)
+
+        assert run_task.exception() is None
+        assert ping_task.done(), "ping task not cleaned up on stop()"
+        assert manager._ping_task is None
+        assert manager.ws_ready is False
+
+    @pytest.mark.asyncio
+    async def test_reconnect_restores_subscriptions(self):
+        mock_ws1 = MockWebSocket()
+        mock_ws2 = MockWebSocket()
+        manager = make_connected_manager(mock_ws1)
+        received: List[Any] = []
+        subscription_id = await manager.subscribe(
+            "trade@5_2", lambda x: received.append(x)
+        )
+
+        async def fake_connect(url):
+            return mock_ws2
+
+        run_task = asyncio.create_task(manager.run())
+        try:
+            with patch("alphasec.websocket.async_ws.connect", fake_connect):
+                # Simulate a server-side disconnect of the first connection.
+                await mock_ws1.close()
+                await wait_until(lambda: manager.ws_ready and manager._ws is mock_ws2)
+
+            assert len(mock_ws2.sent_messages) == 1
+            frame = json.loads(mock_ws2.sent_messages[0])
+            assert frame["method"] == "subscribe"
+            assert frame["params"]["channels"] == ["trade@5_2"]
+            assert frame["id"] == subscription_id
+
+            # The restored subscription must still deliver messages.
+            await mock_ws2.add_message(make_trade_msg(seq=7))
+            await wait_until(lambda: len(received) == 1)
+        finally:
+            await manager.stop()
+            await asyncio.wait_for(run_task, timeout=2)
+
+    @pytest.mark.asyncio
+    async def test_stop_during_reconnect_closes_fresh_socket(self):
+        mock_ws1 = MockWebSocket()
+        mock_ws2 = MockWebSocket()
+        manager = make_connected_manager(mock_ws1)
+        await manager.subscribe("trade@5_2", lambda x: None)
+
+        connect_entered = asyncio.Event()
+        release_connect = asyncio.Event()
+
+        async def fake_connect(url):
+            connect_entered.set()
+            await release_connect.wait()
+            return mock_ws2
+
+        run_task = asyncio.create_task(manager.run())
+        with patch("alphasec.websocket.async_ws.connect", fake_connect):
+            # Drop the first connection so run() enters _reconnect.
+            await mock_ws1.close()
+            await asyncio.wait_for(connect_entered.wait(), timeout=2)
+
+            # stop() completes while connect() is still in flight: it can
+            # only close the old (dead) socket and reset ws_ready.
+            await manager.stop()
+
+            # Let connect() return the fresh socket after stop() finished.
+            release_connect.set()
+            await asyncio.wait_for(run_task, timeout=2)
+
+        assert run_task.exception() is None
+        assert mock_ws2.closed, "fresh socket leaked after stop()"
+        assert manager.ws_ready is False, "stale ws_ready=True after stop()"
+
+    @pytest.mark.asyncio
+    async def test_async_callback_receives_message(self):
+        mock_ws = MockWebSocket()
+        manager = make_connected_manager(mock_ws)
+        received: List[Any] = []
+
+        async def async_callback(payload):
+            received.append(payload)
+
+        await manager.subscribe("trade@5_2", async_callback)
+
+        run_task = asyncio.create_task(manager.run())
+        try:
+            await mock_ws.add_message(make_trade_msg(seq=3))
+            await wait_until(lambda: len(received) == 1)
+            assert received[0][0]["market_id"] == "5_2"
+        finally:
+            await manager.stop()
+            await asyncio.wait_for(run_task, timeout=2)
+
+
+class TestAsyncWebsocketManagerConcurrency:
+    """Async-specific falsification axes (concurrent calls)."""
+
+    @pytest.mark.asyncio
+    async def test_userevent_duplicate_subscription_raises(self):
+        mock_ws = MockWebSocket()
+        manager = make_connected_manager(mock_ws)
+        channel = "userEvent@0x70dBb395AF2eDCC2833D803C03AbBe56ECe7c25c"
+
+        await manager.subscribe(channel, lambda x: None)
+        with pytest.raises(ValueError):
+            await manager.subscribe(channel, lambda x: None)
+
+        identifier = "userevent:0x70dbb395af2edcc2833d803c03abbe56ece7c25c"
+        assert len(manager.active_subscriptions[identifier]) == 1
+
+    @pytest.mark.asyncio
+    async def test_concurrent_subscribe_unique_ids_and_consistent_state(self):
+        mock_ws = MockWebSocket()
+        manager = make_connected_manager(mock_ws)
+        n = 20
+
+        ids = await asyncio.gather(
+            *[manager.subscribe("trade@5_2", lambda x: None) for _ in range(n)]
+        )
+
+        assert len(set(ids)) == n, f"duplicate subscription ids: {sorted(ids)}"
+        assert sorted(ids) == list(range(1, n + 1))
+        assert len(manager.active_subscriptions["trade:5_2"]) == n
+        registered_ids = {
+            s.subscription_id for s in manager.active_subscriptions["trade:5_2"]
+        }
+        assert registered_ids == set(ids)
+        assert len(mock_ws.sent_messages) == n
+
+
 # Integration test - requires real server
-@pytest.mark.skip(reason="Integration test - requires real server")
+@SKIP_INTEGRATION
 class TestAsyncWebsocketManagerIntegration:
     """Integration tests with real server."""
 

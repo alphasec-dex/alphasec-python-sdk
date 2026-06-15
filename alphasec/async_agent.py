@@ -4,11 +4,14 @@ Provides a high-level async interface combining AsyncAPI and AsyncWebsocketManag
 """
 from typing import Any, Callable, Optional, Union
 import asyncio
+import logging
 
 from alphasec.api.async_api import AsyncAPI
 from alphasec.websocket.async_ws import AsyncWebsocketManager
 from alphasec.transaction.sign import AlphasecSigner
 from alphasec.api.utils import market_to_market_id
+
+logger = logging.getLogger(__name__)
 
 
 class AsyncAgent:
@@ -40,7 +43,7 @@ class AsyncAgent:
     async def __aenter__(self) -> "AsyncAgent":
         """Async context manager entry."""
         self.api = AsyncAPI(self._base_url, timeout=self._timeout, signer=self._signer)
-        await self.api._ensure_initialized()
+        await self.api.initialize()
         self.ws = AsyncWebsocketManager(self._base_url)
         return self
 
@@ -67,15 +70,29 @@ class AsyncAgent:
         self._ws_task = asyncio.create_task(self.ws.run())
 
     async def stop(self) -> None:
-        """Stop the WebSocket connection."""
+        """Stop the WebSocket connection.
+
+        Always reaps the websocket task: if the task already died with an
+        exception, the exception is retrieved and logged instead of being
+        silently lost.
+        """
         if self.ws is not None:
             await self.ws.stop()
-        if self._ws_task is not None and not self._ws_task.done():
-            self._ws_task.cancel()
-            try:
-                await self._ws_task
-            except asyncio.CancelledError:
-                pass
+        if self._ws_task is not None:
+            if self._ws_task.done():
+                # Retrieve the exception of a dead task so it is not lost.
+                if not self._ws_task.cancelled():
+                    exc = self._ws_task.exception()
+                    if exc is not None:
+                        logger.error(f"WebSocket task failed: {exc!r}")
+            else:
+                self._ws_task.cancel()
+                try:
+                    await self._ws_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    logger.error(f"WebSocket task failed: {exc!r}")
             self._ws_task = None
 
     # WebSocket subscriptions

@@ -24,6 +24,7 @@ from alphasec.transaction.constants import (
     DexCommandSessionUpdate,
     DexCommandSessionDelete,
 )
+from alphasec.exceptions import AlphasecAPIError
 from alphasec.transaction.sign import AlphasecSigner
 from alphasec.transaction.utils import normalize_price_quantity
 
@@ -59,16 +60,42 @@ class AsyncAPI:
                     timeout=self.timeout,
                 )
             await self._map_token_metadata()
-            self._initialized = True
+            # Mark initialized only when token metadata is non-empty so an
+            # empty token list is retried on the next call instead of being
+            # latched as a permanently empty map.
+            if self.token_id_symbol_map:
+                self._initialized = True
+
+    async def initialize(self) -> None:
+        """Eagerly initialize the client and token metadata (fail-fast)."""
+        await self._ensure_initialized()
 
     async def _map_token_metadata(self) -> None:
         """Load and map token metadata from the API."""
         tokens = await self.get_tokens()
+        token_id_symbol_map: dict = {}
+        symbol_token_id_map: dict = {}
+        token_id_address_map: dict = {}
+        token_id_decimals_map: dict = {}
         for token in tokens:
-            self.token_id_symbol_map[token["tokenId"]] = token["l2Symbol"]
-            self.symbol_token_id_map[token["l2Symbol"]] = token["tokenId"]
-            self.token_id_address_map[token["tokenId"]] = token["l1Address"]
-            self.token_id_decimals_map[token["tokenId"]] = token["l1Decimal"]
+            token_id_symbol_map[token["tokenId"]] = token["l2Symbol"]
+            symbol_token_id_map[token["l2Symbol"]] = token["tokenId"]
+            token_id_address_map[token["tokenId"]] = token["l1Address"]
+            token_id_decimals_map[token["tokenId"]] = token["l1Decimal"]
+        # Build-then-swap: replace all maps in a single assignment (no await
+        # in between) so readers on the same event loop never observe a
+        # partially updated state.
+        (
+            self.token_id_symbol_map,
+            self.symbol_token_id_map,
+            self.token_id_address_map,
+            self.token_id_decimals_map,
+        ) = (
+            token_id_symbol_map,
+            symbol_token_id_map,
+            token_id_address_map,
+            token_id_decimals_map,
+        )
 
     async def __aenter__(self) -> "AsyncAPI":
         """Async context manager entry."""
@@ -169,9 +196,15 @@ class AsyncAPI:
             )
         response = await self._client.get(self.url + "/api/v1/market/tokens")
         try:
-            return response.json()["result"]
+            payload = response.json()
         except ValueError:
-            return []
+            raise AlphasecAPIError(
+                f"Failed to fetch token metadata: non-JSON response "
+                f"(HTTP {response.status_code}): {response.text[:200]}")
+        if "result" not in payload:
+            raise AlphasecAPIError(
+                f"Failed to fetch token metadata: {str(payload.get('error', payload))[:200]}")
+        return payload["result"]
 
     async def get_trades(self, market: str, limit: int = 100) -> list:
         """Get recent trades for a market."""
@@ -275,8 +308,15 @@ class AsyncAPI:
     async def get_order_by_id(self, order_id: str) -> Optional[dict]:
         """Get order by ID."""
         response = await self.get(f"/api/v1/order/{order_id}")
-        if response.get("code") == 404 or "result" not in response:
+        # Not-found: this backend signals a missing resource with app-level
+        # code -1001 ("Resource not found"); the HTTP 404 status is discarded
+        # by get(), so it never reaches here. 404 is kept only for
+        # forward-compat with a future HTTP-status-aligned server.
+        if response.get("code") in (-1001, 404):
             return None
+        if "result" not in response:
+            raise AlphasecAPIError(
+                f"get_order_by_id failed: {str(response.get('error', response))[:200]}")
         return response["result"]
 
     async def create_session(
@@ -578,8 +618,10 @@ class AsyncAPI:
         else:
             l2_provider = web3.Web3(web3.HTTPProvider(ALPHASEC_KAIROS_URL))
 
-        tx = self.signer.generate_withdraw_transaction(
-            l2_provider, token_id, value, token_l1_address
+        # Offload blocking web3 RPC calls (gas/chainId fetch) to a thread
+        tx = await asyncio.to_thread(
+            self.signer.generate_withdraw_transaction,
+            l2_provider, token_id, value, token_l1_address,
         )
         response = await self.post(
             "/api/v1/wallet/withdraw",
@@ -615,8 +657,11 @@ class AsyncAPI:
         else:
             l1_provider = web3.Web3(web3.HTTPProvider(KAIROS_URL))
 
-        tx = self.signer.generate_deposit_transaction(
-            l1_provider, token_id, value, token_l1_address
+        # Offload blocking web3 RPC calls (nonce/allowance/approve receipt
+        # polling) to a thread to avoid blocking the event loop
+        tx = await asyncio.to_thread(
+            self.signer.generate_deposit_transaction,
+            l1_provider, token_id, value, token_l1_address,
         )
         # Wrap blocking web3 calls with asyncio.to_thread to avoid blocking event loop
         txHash = await asyncio.to_thread(l1_provider.eth.send_raw_transaction, tx)

@@ -149,9 +149,9 @@ class WebsocketManager(threading.Thread):
 
         logging.debug("subscribing")
         identifier = channel_to_identifier(channel)
-        if identifier == "userEvent":
+        if identifier.startswith("userEvent:"):
             if len(self.active_subscriptions[identifier]) != 0:
-                raise NotImplementedError(f"Cannot subscribe to {identifier} multiple times")
+                raise ValueError(f"Already subscribed to {identifier}; only one userEvent subscription per address is allowed")
         self.active_subscriptions[identifier].append(ActiveSubscription(callback, subscription_id))
         self.ws.send(json.dumps({"method": "subscribe", "params": {"channels": [channel]}, "id": subscription_id}))
         return subscription_id

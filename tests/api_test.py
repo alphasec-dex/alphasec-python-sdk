@@ -61,34 +61,35 @@ def test_get_balance():
 def test_get_sessions():
     api = get_api()
     sessions = api.get_sessions("0x70dBb395AF2eDCC2833D803C03AbBe56ECe7c25c")
-    # sessions can be None or a list
-    assert sessions is None or isinstance(sessions, list)
+    assert sessions is not None
 
 
 def test_get_open_orders():
     api = get_api()
     orders = api.get_open_orders("0x70dBb395AF2eDCC2833D803C03AbBe56ECe7c25c", "KAIA/USDT")
-    assert orders is None or isinstance(orders, list)
+    assert orders is None
 
 
 def test_get_filled_canceled_orders():
     api = get_api()
     orders = api.get_filled_canceled_orders("0x70dBb395AF2eDCC2833D803C03AbBe56ECe7c25c", "KAIA/USDT")
-    assert orders is None or isinstance(orders, list)
+    assert orders is None
 
 
 def test_get_order_by_id():
     api = get_api()
     order = api.get_order_by_id("1")
-    # order can be None if not found
-    assert order is None or isinstance(order, dict)
+    assert order is None
 
 
 # Write tests (require signer and correct chain ID)
 # These tests are skipped by default as they require integration environment
 # Set ALPHASEC_INTEGRATION_TEST=1 to run these tests
 
-SKIP_INTEGRATION = pytest.mark.skip(reason="Integration test - requires funded wallet and live API")
+SKIP_INTEGRATION = pytest.mark.skipif(
+    not os.environ.get("ALPHASEC_INTEGRATION_TEST"),
+    reason="Integration test - set ALPHASEC_INTEGRATION_TEST=1 to run",
+)
 
 
 @SKIP_INTEGRATION
