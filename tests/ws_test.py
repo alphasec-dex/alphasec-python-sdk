@@ -1,9 +1,18 @@
 import os
 import time
+import pytest
 from alphasec.transaction.utils import load_config
 from alphasec.websocket.ws import WebsocketManager
 
 
+# Integration test gate: set ALPHASEC_INTEGRATION_TEST=1 to run.
+SKIP_INTEGRATION = pytest.mark.skipif(
+    not os.environ.get("ALPHASEC_INTEGRATION_TEST"),
+    reason="Integration test - set ALPHASEC_INTEGRATION_TEST=1 to run",
+)
+
+
+@SKIP_INTEGRATION
 def test_trades_subscription():
     config = load_config(os.path.dirname(__file__) + "/config")
 

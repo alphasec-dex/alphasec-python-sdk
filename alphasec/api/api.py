@@ -12,6 +12,7 @@ from alphasec.transaction.constants import (
     DexCommandSessionUpdate,
     DexCommandSessionDelete,
 )
+from alphasec.exceptions import AlphasecAPIError
 from alphasec.transaction.sign import AlphasecSigner
 from alphasec.transaction.utils import normalize_price_quantity
 
@@ -88,7 +89,10 @@ class API:
 
     def get_tokens(self):
         response = self.get("/api/v1/market/tokens")
-        return response['result']
+        if "result" not in response:
+            raise AlphasecAPIError(
+                f"Failed to fetch token metadata: {str(response.get('error', response))[:200]}")
+        return response["result"]
 
     def get_trades(self, market: str, limit: int = 100):
         market_id = market_to_market_id(market, self.symbol_token_id_map)
@@ -177,8 +181,15 @@ class API:
 
     def get_order_by_id(self, order_id: str):
         response = self.get(f"/api/v1/order/{order_id}")
-        if response['code'] == 404:
+        # Not-found: this backend signals a missing resource with app-level
+        # code -1001 ("Resource not found"); the HTTP 404 status is discarded
+        # by get(), so it never reaches here. 404 is kept only for
+        # forward-compat with a future HTTP-status-aligned server.
+        if response.get('code') in (-1001, 404):
             return None
+        if 'result' not in response:
+            raise AlphasecAPIError(
+                f"get_order_by_id failed: {str(response.get('error', response))[:200]}")
         return response['result']
 
     def create_session(self, session_id: str, session_wallet: Account, expiry: int, nonce: int) -> dict:
