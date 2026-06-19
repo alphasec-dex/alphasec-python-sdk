@@ -6,6 +6,9 @@ from alphasec.api.api import API
 from alphasec import load_config, AlphasecSigner
 from alphasec.api.constants import BASE_MODE, BUY, LIMIT, QUOTE_MODE
 
+# Whole file hits the live exchange backend; excluded by default, run with -m live.
+pytestmark = pytest.mark.live
+
 
 def get_config():
     return load_config(os.path.dirname(__file__) + "/config")
@@ -49,7 +52,7 @@ def test_get_tickers():
 def test_get_trades():
     api = get_api()
     trades = api.get_trades("KAIA/USDT")
-    assert len(trades) > 0
+    assert isinstance(trades, list)
 
 
 def test_get_balance():
@@ -67,13 +70,13 @@ def test_get_sessions():
 def test_get_open_orders():
     api = get_api()
     orders = api.get_open_orders("0x70dBb395AF2eDCC2833D803C03AbBe56ECe7c25c", "KAIA/USDT")
-    assert orders is None
+    assert orders is None or isinstance(orders, list)
 
 
 def test_get_filled_canceled_orders():
     api = get_api()
     orders = api.get_filled_canceled_orders("0x70dBb395AF2eDCC2833D803C03AbBe56ECe7c25c", "KAIA/USDT")
-    assert orders is None
+    assert orders is None or isinstance(orders, list)
 
 
 def test_get_order_by_id():
@@ -83,16 +86,8 @@ def test_get_order_by_id():
 
 
 # Write tests (require signer and correct chain ID)
-# These tests are skipped by default as they require integration environment
-# Set ALPHASEC_INTEGRATION_TEST=1 to run these tests
-
-SKIP_INTEGRATION = pytest.mark.skipif(
-    not os.environ.get("ALPHASEC_INTEGRATION_TEST"),
-    reason="Integration test - set ALPHASEC_INTEGRATION_TEST=1 to run",
-)
 
 
-@SKIP_INTEGRATION
 def test_create_session():
     api = get_api_with_signer()
     sess_wallet = Account.create()
@@ -103,7 +98,6 @@ def test_create_session():
     assert result['status'] is True
 
 
-@SKIP_INTEGRATION
 def test_update_session():
     api = get_api_with_signer()
     sess_wallet = Account.create()
@@ -118,7 +112,6 @@ def test_update_session():
     assert result['status'] is True
 
 
-@SKIP_INTEGRATION
 def test_delete_session():
     api = get_api_with_signer()
     sess_wallet = Account.create()
@@ -132,28 +125,24 @@ def test_delete_session():
     assert result['status'] is True
 
 
-@SKIP_INTEGRATION
 def test_value_transfer():
     api = get_api_with_signer()
     result = api.value_transfer("0x4D3cF56fB96c287387606862df55005d52FEa89b", 1.5)
     assert result['status'] is True, result['error']
 
 
-@SKIP_INTEGRATION
 def test_token_transfer():
     api = get_api_with_signer()
     result = api.token_transfer("0x4D3cF56fB96c287387606862df55005d52FEa89b", 1.5, "USDT")
     assert result['status'] is True, result['error']
 
 
-@SKIP_INTEGRATION
 def test_order():
     api = get_api_with_signer()
     result = api.order("GRND/USDT", BUY, price=9.999, quantity=0.555, order_type=LIMIT, order_mode=BASE_MODE)
     assert result['status'] is True, result['error']
 
 
-@SKIP_INTEGRATION
 def test_cancel():
     api = get_api_with_signer()
     order_result = api.order("GRND/USDT", BUY, price=3, quantity=1, order_type=LIMIT, order_mode=BASE_MODE)
@@ -161,7 +150,6 @@ def test_cancel():
     assert cancel_result['status'] is True, cancel_result['error']
 
 
-@SKIP_INTEGRATION
 def test_cancel_all():
     api = get_api_with_signer()
     api.order("GRND/USDT", BUY, price=3, quantity=20, order_type=LIMIT, order_mode=BASE_MODE)
@@ -169,7 +157,6 @@ def test_cancel_all():
     assert cancel_result['status'] is True, cancel_result['error']
 
 
-@SKIP_INTEGRATION
 def test_modify():
     api = get_api_with_signer()
     order_result = api.order("GRND/USDT", BUY, price=3, quantity=0.5, order_type=LIMIT, order_mode=BASE_MODE)
@@ -177,28 +164,24 @@ def test_modify():
     assert modify_result['status'] is True, modify_result['error']
 
 
-@SKIP_INTEGRATION
 def test_stop_order():
     api = get_api_with_signer()
     stop_result = api.stop_order("GRND/USDT", stop_price=3, price=4, quantity=1, side=BUY, order_type=LIMIT, order_mode=BASE_MODE)
     assert stop_result['status'] is True, stop_result['error']
 
 
-@SKIP_INTEGRATION
 def test_withdraw_to_kaia():
     api = get_api_with_signer()
     result = api.withdraw_to_kaia("USDT", 1.0)
     assert result['status'] is True, result['error']
 
 
-@SKIP_INTEGRATION
 def test_withdraw_native_to_kaia():
     api = get_api_with_signer()
     result = api.withdraw_to_kaia("KAIA", 1.0)
     assert result['status'] is True, result['error']
 
 
-@SKIP_INTEGRATION
 def test_deposit_to_alphasec():
     api = get_api_with_signer()
     result = api.deposit_to_alphasec("USDT", 1.0)

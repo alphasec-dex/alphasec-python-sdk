@@ -30,3 +30,18 @@ DexCommandCancel        = 0x22
 DexCommandCancelAll     = 0x23
 DexCommandModify        = 0x24
 DexCommandStopOrder     = 0x25
+
+# Perp (perpetual futures) command bytes.
+# Source of truth: alphasec-rust-sdk src/types/constants.rs dex_commands.
+DexCommandPerpDeposit            = 0x12  # implemented (Spot -> Perp)
+DexCommandPerpOrder              = 0x41  # implemented
+DexCommandPerpCancel             = 0x42  # implemented
+DexCommandPerpCancelAll          = 0x43  # implemented
+DexCommandPerpWithdraw           = 0x44  # implemented (Perp -> Spot)
+DexCommandPerpSetLeverage        = 0x45  # implemented
+DexCommandPerpSetMarginType      = 0x46  # constant only (not implemented)
+DexCommandPerpUpdateIsolatedMargin = 0x47  # constant only (not implemented)
+DexCommandPerpTriggerOrder       = 0x48  # constant only (not implemented)
+DexCommandPerpTriggerBatch       = 0x49  # constant only (not implemented)
+DexCommandPerpModify             = 0x4A  # implemented
+DexCommandPerpPositionTpsl       = 0x4B  # constant only (not implemented)

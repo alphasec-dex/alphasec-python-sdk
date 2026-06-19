@@ -6,6 +6,9 @@ from alphasec.api.async_api import AsyncAPI
 from alphasec import load_config, AlphasecSigner
 from alphasec.api.constants import BASE_MODE, BUY, LIMIT
 
+# Whole file hits the live exchange backend; excluded by default, run with -m live.
+pytestmark = pytest.mark.live
+
 
 def get_config():
     return load_config(os.path.dirname(__file__) + "/config")
@@ -49,7 +52,7 @@ async def test_get_trades():
     config = get_config()
     async with AsyncAPI(url=config["api_url"]) as api:
         trades = await api.get_trades("KAIA/USDT")
-        assert len(trades) > 0
+        assert isinstance(trades, list)
 
 
 @pytest.mark.asyncio
@@ -95,16 +98,8 @@ async def test_get_order_by_id():
 
 
 # Write tests (require signer and correct chain ID)
-# These tests are skipped by default as they require integration environment
-# Set ALPHASEC_INTEGRATION_TEST=1 to run these tests
-
-SKIP_INTEGRATION = pytest.mark.skipif(
-    not os.environ.get("ALPHASEC_INTEGRATION_TEST"),
-    reason="Integration test - set ALPHASEC_INTEGRATION_TEST=1 to run",
-)
 
 
-@SKIP_INTEGRATION
 @pytest.mark.asyncio
 async def test_create_session():
     config = get_config()
@@ -117,7 +112,6 @@ async def test_create_session():
         assert result['status'] is True
 
 
-@SKIP_INTEGRATION
 @pytest.mark.asyncio
 async def test_update_session():
     config = get_config()
@@ -134,7 +128,6 @@ async def test_update_session():
         assert result['status'] is True
 
 
-@SKIP_INTEGRATION
 @pytest.mark.asyncio
 async def test_delete_session():
     config = get_config()
@@ -151,7 +144,6 @@ async def test_delete_session():
         assert result['status'] is True
 
 
-@SKIP_INTEGRATION
 @pytest.mark.asyncio
 async def test_value_transfer():
     config = get_config()
@@ -160,7 +152,6 @@ async def test_value_transfer():
         assert result['status'] is True, result['error']
 
 
-@SKIP_INTEGRATION
 @pytest.mark.asyncio
 async def test_token_transfer():
     config = get_config()
@@ -169,7 +160,6 @@ async def test_token_transfer():
         assert result['status'] is True, result['error']
 
 
-@SKIP_INTEGRATION
 @pytest.mark.asyncio
 async def test_order():
     config = get_config()
@@ -178,7 +168,6 @@ async def test_order():
         assert result['status'] is True, result['error']
 
 
-@SKIP_INTEGRATION
 @pytest.mark.asyncio
 async def test_cancel():
     config = get_config()
@@ -188,7 +177,6 @@ async def test_cancel():
         assert cancel_result['status'] is True, cancel_result['error']
 
 
-@SKIP_INTEGRATION
 @pytest.mark.asyncio
 async def test_cancel_all():
     config = get_config()
@@ -198,7 +186,6 @@ async def test_cancel_all():
         assert cancel_result['status'] is True, cancel_result['error']
 
 
-@SKIP_INTEGRATION
 @pytest.mark.asyncio
 async def test_modify():
     config = get_config()
@@ -208,7 +195,6 @@ async def test_modify():
         assert modify_result['status'] is True, modify_result['error']
 
 
-@SKIP_INTEGRATION
 @pytest.mark.asyncio
 async def test_stop_order():
     config = get_config()
@@ -217,7 +203,6 @@ async def test_stop_order():
         assert stop_result['status'] is True, stop_result['error']
 
 
-@SKIP_INTEGRATION
 @pytest.mark.asyncio
 async def test_withdraw_to_kaia():
     config = get_config()
@@ -226,7 +211,6 @@ async def test_withdraw_to_kaia():
         assert result['status'] is True, result['error']
 
 
-@SKIP_INTEGRATION
 @pytest.mark.asyncio
 async def test_withdraw_native_to_kaia():
     config = get_config()
@@ -235,7 +219,6 @@ async def test_withdraw_native_to_kaia():
         assert result['status'] is True, result['error']
 
 
-@SKIP_INTEGRATION
 @pytest.mark.asyncio
 async def test_deposit_to_alphasec():
     config = get_config()

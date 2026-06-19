@@ -14,7 +14,7 @@ from alphasec.transaction.constants import (
 )
 from alphasec.exceptions import AlphasecAPIError
 from alphasec.transaction.sign import AlphasecSigner
-from alphasec.transaction.utils import normalize_price_quantity
+from alphasec.transaction.utils import normalize_price_quantity, resolve_spot_order_price_quantity
 
 from .utils import market_to_market_id, _clean_params, split_base_quote_token
 
@@ -25,8 +25,27 @@ class API:
         self.timeout = timeout
         self.session.headers.update({"Content-Type": "application/json"})
         self._logger = logging.getLogger(__name__)
-        self.token_id_symbol_map, self.symbol_token_id_map, self.token_id_address_map, self.token_id_decimals_map = self.map_token_metadata()
+        self.token_id_symbol_map = {}
+        self.symbol_token_id_map = {}
+        self.token_id_address_map = {}
+        self.token_id_decimals_map = {}
         self.signer = signer
+        self._initialized = False
+
+    def _ensure_initialized(self) -> None:
+        # Lazy token-metadata load; mirrors AsyncAPI._ensure_initialized.
+        if self._initialized:
+            return
+        maps = self.map_token_metadata()
+        # Don't latch an empty map: retry on the next call.
+        if maps[0]:
+            (self.token_id_symbol_map, self.symbol_token_id_map,
+             self.token_id_address_map, self.token_id_decimals_map) = maps
+            self._initialized = True
+
+    def initialize(self) -> None:
+        """Eagerly load token metadata (fail-fast). Optional; methods lazy-init otherwise."""
+        self._ensure_initialized()
 
     def map_token_metadata(self):
         token_id_symbol_map = {}
@@ -42,76 +61,96 @@ class API:
         return token_id_symbol_map, symbol_token_id_map, token_id_address_map, token_id_decimals_map
 
     def get(self, path: str, params: dict = None):
+        self._ensure_initialized()
         response = self.session.get(self.url + path, params=params, timeout=self.timeout)
         try:
             return response.json()
         except ValueError:
-            return {"error": f"Could not parse JSON: {response.text}"}
+            raise AlphasecAPIError(f"Could not parse JSON response: {response.text[:200]}")
 
     def post(self, path: str, params: dict = None):
+        self._ensure_initialized()
         response = self.session.post(self.url + path, json=params, timeout=self.timeout)
         try:
             return response.json()
         except ValueError:
-            return {"error": f"Could not parse JSON: {response.text}"}
+            raise AlphasecAPIError(f"Could not parse JSON response: {response.text[:200]}")
 
     def put(self, path: str, params: dict = None):
+        self._ensure_initialized()
         response = self.session.put(self.url + path, json=params, timeout=self.timeout)
         try:
             return response.json()
         except ValueError:
-            return {"error": f"Could not parse JSON: {response.text}"}
+            raise AlphasecAPIError(f"Could not parse JSON response: {response.text[:200]}")
 
     def delete(self, path: str, params: dict = None):
+        self._ensure_initialized()
         response = self.session.delete(self.url + path, json=params, timeout=self.timeout)
         try:
             return response.json()
         except ValueError:
-            return {"error": f"Could not parse JSON: {response.text}"}
+            raise AlphasecAPIError(f"Could not parse JSON response: {response.text[:200]}")
+
+    @staticmethod
+    def _extract_result(response: dict):
+        if not isinstance(response, dict) or "result" not in response:
+            raise AlphasecAPIError(
+                f"unexpected response (no 'result'): {str(response)[:200]}")
+        return response["result"]
 
     def get_market_list(self):
         response = self.get("/api/v1/market")
-        return response['result']
+        return self._extract_result(response)
 
     def get_depth(self, market: str, limit: int = 100):
+        self._ensure_initialized()
         market_id = market_to_market_id(market, self.symbol_token_id_map)
         response = self.get(f"/api/v1/market/depth?marketId={market_id}&limit={limit}")
-        return response['result']
+        return self._extract_result(response)
 
     def get_ticker(self, market: str):
+        self._ensure_initialized()
         market_id = market_to_market_id(market, self.symbol_token_id_map)
         response = self.get(f"/api/v1/market/ticker?marketId={market_id}")
-        return response['result'][0]
+        return self._extract_result(response)[0]
 
     def get_tickers(self):
         response = self.get("/api/v1/market/ticker")
-        return response['result']
+        return self._extract_result(response)
 
     def get_tokens(self):
-        response = self.get("/api/v1/market/tokens")
-        if "result" not in response:
+        # Direct session.get (NOT self.get) so token-metadata load does not
+        # re-enter _ensure_initialized. Mirrors AsyncAPI.get_tokens.
+        response = self.session.get(self.url + "/api/v1/market/tokens", timeout=self.timeout)
+        try:
+            payload = response.json()
+        except ValueError:
+            raise AlphasecAPIError("Failed to fetch token metadata: non-JSON response")
+        if "result" not in payload:
             raise AlphasecAPIError(
-                f"Failed to fetch token metadata: {str(response.get('error', response))[:200]}")
-        return response["result"]
+                f"Failed to fetch token metadata: {str(payload.get('error', payload))[:200]}")
+        return payload["result"]
 
     def get_trades(self, market: str, limit: int = 100):
+        self._ensure_initialized()
         market_id = market_to_market_id(market, self.symbol_token_id_map)
         response = self.get(f"/api/v1/market/trades?marketId={market_id}&limit={limit}")
-        return response['result']
+        return self._extract_result(response)
 
     def get_balance(self, addr: str):
         if not is_address(addr):
             raise ValueError(f"Invalid address: {addr}")
         addr = to_checksum_address(addr)
         response = self.get(f"/api/v1/wallet/balance?address={addr}")
-        return response['result']
+        return self._extract_result(response)
 
     def get_sessions(self, addr: str):
         if not is_address(addr):
             raise ValueError(f"Invalid address: {addr}")
         addr = to_checksum_address(addr)
         response = self.get(f"/api/v1/wallet/session?address={addr}")
-        return response['result']
+        return self._extract_result(response)
 
     def get_transfer_history(self, addr: str, token_id: int = None, from_msec: int = None, to_msec: int = None, limit: int = 100):
         """
@@ -147,12 +186,13 @@ class API:
             "limit": min(limit, 500),  # max 500 per API docs
         })
         response = self.get("/api/v1/wallet/transfer", params=params)
-        return response['result']
+        return self._extract_result(response)
 
     def get_open_orders(self, addr: str, market: str, limit: int = 100, from_msec: int = None, end_msec: int = None):
         if not is_address(addr):
             raise ValueError(f"Invalid address: {addr}")
         addr = to_checksum_address(addr)
+        self._ensure_initialized()
         market_id = market_to_market_id(market, self.symbol_token_id_map)
         params = _clean_params({
             "address": addr,
@@ -162,12 +202,13 @@ class API:
             "to": end_msec,
         })
         response = self.get(f"/api/v1/order/open", params=params)
-        return response['result']
+        return self._extract_result(response)
 
     def get_filled_canceled_orders(self, addr: str, market: str, limit: int = 100, from_msec: int = None, end_msec: int = None):
         if not is_address(addr):
             raise ValueError(f"Invalid address: {addr}")
         addr = to_checksum_address(addr)
+        self._ensure_initialized()
         market_id = market_to_market_id(market, self.symbol_token_id_map)
         params = _clean_params({
             "address": addr,
@@ -177,10 +218,12 @@ class API:
             "to": end_msec,
         })
         response = self.get(f"/api/v1/order/", params=params)
-        return response['result']
+        return self._extract_result(response)
 
     def get_order_by_id(self, order_id: str):
         response = self.get(f"/api/v1/order/{order_id}")
+        if not isinstance(response, dict):
+            raise AlphasecAPIError(f"unexpected response (not a dict): {str(response)[:200]}")
         # Not-found: this backend signals a missing resource with app-level
         # code -1001 ("Resource not found"); the HTTP 404 status is discarded
         # by get(), so it never reaches here. 404 is kept only for
@@ -196,8 +239,6 @@ class API:
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
-        if self.signer.session_enabled:
-            raise ValueError("Session is already enabled")
         data = self.signer.create_session_data(DexCommandSessionCreate, session_wallet.address, nonce, expiry)
         tx = self.signer.generate_alphasec_transaction(nonce, data, session_wallet)
         response = self.post(f"/api/v1/wallet/session", params={
@@ -264,6 +305,7 @@ class API:
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
+        self._ensure_initialized()
         data = self.signer.create_token_transfer_data(to, value, self.symbol_token_id_map[token])
         tx = self.signer.generate_alphasec_transaction(int(time.time() * 1000), data)
         response = self.post(f"/api/v1/wallet/transfer", params={
@@ -279,9 +321,9 @@ class API:
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
+        self._ensure_initialized()
         base_token, quote_token = split_base_quote_token(market, self.symbol_token_id_map)
-        normalized_price, normalized_quantity = normalize_price_quantity(price, quantity)
-        adjusted_quantity = normalized_quantity if order_type == LIMIT else quantity
+        normalized_price, adjusted_quantity = resolve_spot_order_price_quantity(order_type == MARKET, price, quantity)
         data = self.signer.create_order_data(base_token, quote_token, side, normalized_price, adjusted_quantity, order_type, order_mode, tp_limit, sl_trigger, sl_limit)
         tx = self.signer.generate_alphasec_transaction(int(time.time() * 1000), data)
         response = self.post(f"/api/v1/order", params={
@@ -327,6 +369,8 @@ class API:
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
+        if new_price is None or new_qty is None:
+            raise ValueError("new_price and new_qty are required")
         normalized_price, normalized_quantity = normalize_price_quantity(new_price, new_qty)
         data = self.signer.create_modify_data(order_id, normalized_price, normalized_quantity, order_mode)
         tx = self.signer.generate_alphasec_transaction(int(time.time() * 1000), data)
@@ -349,6 +393,7 @@ class API:
         if order_mode not in [BASE_MODE, QUOTE_MODE]:
             raise ValueError("Invalid order mode")
 
+        self._ensure_initialized()
         base_token, quote_token = split_base_quote_token(market, self.symbol_token_id_map)
         normalized_price, normalized_quantity = normalize_price_quantity(price, quantity)
         normalized_stop_price, _ = normalize_price_quantity(stop_price, quantity)
@@ -363,12 +408,13 @@ class API:
             "order_id": response['result'] if "result" in response else None
         }
 
-    # value is in wei
+    # value: token-unit amount (float); converted to int(value * 10**decimals)
     # symbol should be uppercase
     def withdraw_to_kaia(self, symbol: str, value: float):
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
+        self._ensure_initialized()
         token_id = self.symbol_token_id_map[symbol]
         token_l1_address = self.token_id_address_map.get(token_id)
 
@@ -395,12 +441,13 @@ class API:
                 "tx_hash": response['result'] if "result" in response else None
             }
 
-    # value is in wei
+    # value: token-unit amount (float); converted to int(value * 10**decimals)
     # symbol should be uppercase
     def deposit_to_alphasec(self, symbol: str, value: float):
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
+        self._ensure_initialized()
         token_id = self.symbol_token_id_map[symbol]
         token_l1_address = self.token_id_address_map.get(token_id)
 

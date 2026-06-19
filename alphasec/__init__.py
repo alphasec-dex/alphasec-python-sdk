@@ -7,3 +7,4 @@ from .api.api import API
 from .api.async_api import AsyncAPI
 from .websocket.ws import WebsocketManager
 from .websocket.async_ws import AsyncWebsocketManager
+from .perp import decode_perp_event, PerpEvent, PerpAgent, AsyncPerpAgent

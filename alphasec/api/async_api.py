@@ -26,7 +26,7 @@ from alphasec.transaction.constants import (
 )
 from alphasec.exceptions import AlphasecAPIError
 from alphasec.transaction.sign import AlphasecSigner
-from alphasec.transaction.utils import normalize_price_quantity
+from alphasec.transaction.utils import normalize_price_quantity, resolve_spot_order_price_quantity
 
 from .utils import market_to_market_id, _clean_params, split_base_quote_token
 
@@ -129,7 +129,7 @@ class AsyncAPI:
         try:
             return response.json()
         except ValueError:
-            return {"error": f"Could not parse JSON: {response.text}"}
+            raise AlphasecAPIError(f"Could not parse JSON response: {response.text[:200]}")
 
     async def post(self, path: str, params: Optional[dict] = None) -> dict:
         """Make an async POST request."""
@@ -139,7 +139,7 @@ class AsyncAPI:
         try:
             return response.json()
         except ValueError:
-            return {"error": f"Could not parse JSON: {response.text}"}
+            raise AlphasecAPIError(f"Could not parse JSON response: {response.text[:200]}")
 
     async def put(self, path: str, params: Optional[dict] = None) -> dict:
         """Make an async PUT request."""
@@ -149,7 +149,7 @@ class AsyncAPI:
         try:
             return response.json()
         except ValueError:
-            return {"error": f"Could not parse JSON: {response.text}"}
+            raise AlphasecAPIError(f"Could not parse JSON response: {response.text[:200]}")
 
     async def delete(self, path: str, params: Optional[dict] = None) -> dict:
         """Make an async DELETE request."""
@@ -159,12 +159,19 @@ class AsyncAPI:
         try:
             return response.json()
         except ValueError:
-            return {"error": f"Could not parse JSON: {response.text}"}
+            raise AlphasecAPIError(f"Could not parse JSON response: {response.text[:200]}")
+
+    @staticmethod
+    def _extract_result(response: dict):
+        if not isinstance(response, dict) or "result" not in response:
+            raise AlphasecAPIError(
+                f"unexpected response (no 'result'): {str(response)[:200]}")
+        return response["result"]
 
     async def get_market_list(self) -> list:
         """Get list of available markets."""
         response = await self.get("/api/v1/market")
-        return response["result"]
+        return self._extract_result(response)
 
     async def get_depth(self, market: str, limit: int = 100) -> dict:
         """Get order book depth for a market."""
@@ -173,19 +180,19 @@ class AsyncAPI:
         response = await self.get(
             f"/api/v1/market/depth?marketId={market_id}&limit={limit}"
         )
-        return response["result"]
+        return self._extract_result(response)
 
     async def get_ticker(self, market: str) -> dict:
         """Get ticker information for a market."""
         await self._ensure_initialized()
         market_id = market_to_market_id(market, self.symbol_token_id_map)
         response = await self.get(f"/api/v1/market/ticker?marketId={market_id}")
-        return response["result"][0]
+        return self._extract_result(response)[0]
 
     async def get_tickers(self) -> list:
         """Get ticker information for all markets."""
         response = await self.get("/api/v1/market/ticker")
-        return response["result"]
+        return self._extract_result(response)
 
     async def get_tokens(self) -> list:
         """Get list of supported tokens."""
@@ -213,7 +220,7 @@ class AsyncAPI:
         response = await self.get(
             f"/api/v1/market/trades?marketId={market_id}&limit={limit}"
         )
-        return response["result"]
+        return self._extract_result(response)
 
     async def get_balance(self, addr: str) -> list:
         """Get balance for an address."""
@@ -221,7 +228,7 @@ class AsyncAPI:
             raise ValueError(f"Invalid address: {addr}")
         addr = to_checksum_address(addr)
         response = await self.get(f"/api/v1/wallet/balance?address={addr}")
-        return response["result"]
+        return self._extract_result(response)
 
     async def get_sessions(self, addr: str) -> list:
         """Get sessions for an address."""
@@ -229,7 +236,7 @@ class AsyncAPI:
             raise ValueError(f"Invalid address: {addr}")
         addr = to_checksum_address(addr)
         response = await self.get(f"/api/v1/wallet/session?address={addr}")
-        return response["result"]
+        return self._extract_result(response)
 
     async def get_transfer_history(
         self,
@@ -251,7 +258,7 @@ class AsyncAPI:
             "limit": min(limit, 500),
         })
         response = await self.get("/api/v1/wallet/transfer", params=params)
-        return response["result"]
+        return self._extract_result(response)
 
     async def get_open_orders(
         self,
@@ -277,7 +284,7 @@ class AsyncAPI:
             }
         )
         response = await self.get("/api/v1/order/open", params=params)
-        return response["result"]
+        return self._extract_result(response)
 
     async def get_filled_canceled_orders(
         self,
@@ -303,11 +310,13 @@ class AsyncAPI:
             }
         )
         response = await self.get("/api/v1/order/", params=params)
-        return response["result"]
+        return self._extract_result(response)
 
     async def get_order_by_id(self, order_id: str) -> Optional[dict]:
         """Get order by ID."""
         response = await self.get(f"/api/v1/order/{order_id}")
+        if not isinstance(response, dict):
+            raise AlphasecAPIError(f"unexpected response (not a dict): {str(response)[:200]}")
         # Not-found: this backend signals a missing resource with app-level
         # code -1001 ("Resource not found"); the HTTP 404 status is discarded
         # by get(), so it never reaches here. 404 is kept only for
@@ -326,8 +335,6 @@ class AsyncAPI:
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
-        if self.signer.session_enabled:
-            raise ValueError("Session is already enabled")
         data = self.signer.create_session_data(
             DexCommandSessionCreate, session_wallet.address, nonce, expiry
         )
@@ -455,10 +462,9 @@ class AsyncAPI:
         base_token, quote_token = split_base_quote_token(
             market, self.symbol_token_id_map
         )
-        normalized_price, normalized_quantity = normalize_price_quantity(
-            price, quantity
+        normalized_price, adjusted_quantity = resolve_spot_order_price_quantity(
+            order_type == MARKET, price, quantity
         )
-        adjusted_quantity = normalized_quantity if order_type == LIMIT else quantity
         data = self.signer.create_order_data(
             base_token,
             quote_token,
@@ -533,8 +539,10 @@ class AsyncAPI:
         if self.signer is None:
             raise ValueError("Only read-only API is available when signer is not set")
 
+        if new_price is None or new_qty is None:
+            raise ValueError("new_price and new_qty are required")
         normalized_price, normalized_quantity = normalize_price_quantity(
-            new_price or 0.0, new_qty or 0.0
+            new_price, new_qty
         )
         data = self.signer.create_modify_data(
             order_id, normalized_price, normalized_quantity, order_mode

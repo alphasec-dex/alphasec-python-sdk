@@ -4,6 +4,7 @@ from alphasec.api.api import API
 from alphasec.websocket.ws import WebsocketManager
 from alphasec.transaction.sign import AlphasecSigner
 from alphasec.api.utils import market_to_market_id
+from alphasec.perp.agent import PerpAgent
 
 import logging
 # logging.basicConfig(level=logging.DEBUG)
@@ -12,6 +13,7 @@ class Agent:
     def __init__(self, base_url: str, signer: Optional[AlphasecSigner] = None, timeout: Optional[int] = None):
         self.api = API(base_url, timeout=timeout, signer=signer)
         self.ws = WebsocketManager(base_url)
+        self.perp = PerpAgent(self)
 
     # WebSocket lifecycle
     def start(self) -> None:
@@ -54,7 +56,8 @@ class Agent:
         channel_type, target = channel.split('@', 1)
         
         if channel_type in ['trade', 'ticker', 'depth']:
-            # Convert market name to market_id
+            # Convert market name to market_id (lazy-load token metadata first)
+            self.api._ensure_initialized()
             market_id = market_to_market_id(target, self.api.symbol_token_id_map)
             actual_channel = f"{channel_type}@{market_id}"
         elif channel_type == 'userEvent':
@@ -89,7 +92,8 @@ class Agent:
         channel_type, target = channel.split('@', 1)
         
         if channel_type in ['trade', 'ticker', 'depth']:
-            # Convert market name to market_id
+            # Convert market name to market_id (lazy-load token metadata first)
+            self.api._ensure_initialized()
             market_id = market_to_market_id(target, self.api.symbol_token_id_map)
             actual_channel = f"{channel_type}@{market_id}"
         elif channel_type == 'userEvent':
@@ -101,55 +105,37 @@ class Agent:
         return self.ws.unsubscribe(actual_channel, subscription_id, timeout=timeout)
 
     # API helpers (commonly used)
-    def order(self, market: str, side: int, price: float, quantity: float, order_type: int, order_mode: int, tp_limit: Optional[float] = None, sl_trigger: Optional[float] = None, sl_limit: Optional[float] = None) -> bool:
+    def order(self, market: str, side: int, price: float, quantity: float, order_type: int, order_mode: int, tp_limit: Optional[float] = None, sl_trigger: Optional[float] = None, sl_limit: Optional[float] = None) -> dict:
         return self.api.order(market, side, price, quantity, order_type, order_mode, tp_limit, sl_trigger, sl_limit)
 
-    def cancel(self, order_id: str) -> bool:
+    def cancel(self, order_id: str) -> dict:
         return self.api.cancel(order_id)
 
-    def cancel_all(self) -> bool:
+    def cancel_all(self) -> dict:
         return self.api.cancel_all()
 
-    def modify(self, order_id: str, new_price: Optional[float] = None, new_qty: Optional[float] = None, order_mode: Optional[int] = None) -> bool:
+    def modify(self, order_id: str, new_price: Optional[float] = None, new_qty: Optional[float] = None, order_mode: Optional[int] = None) -> dict:
         return self.api.modify(order_id, new_price, new_qty, order_mode)
 
-    def value_transfer(self, to: str, value: float) -> bool:
+    def value_transfer(self, to: str, value: float) -> dict:
         return self.api.value_transfer(to, value)
 
-    def token_transfer(self, to: str, value: float, token: str) -> bool:
+    def token_transfer(self, to: str, value: float, token: str) -> dict:
         return self.api.token_transfer(to, value, token)
 
-    def withdraw(self, token: str, value: float) -> bool:
-        # balance check
-        if self.api.signer is None:
-            raise ValueError("Only read-only API is available when signer is not set")
-
-        balances = self.get_balance(self.api.signer.l1_address)
-        try:
-            token_id = self.api.symbol_token_id_map[token]
-        except KeyError:
-            raise ValueError(f"Unknown token symbol: {token}")
-
-        # balances may be a list of { tokenId, locked, unlocked }
-        # or a dict with { available: { [tokenId]: amount } }
-        available: float | int | str = 0
-        if isinstance(balances, list):
-            matched = next((b for b in balances if str(b.get('tokenId')) == str(token_id)), None)
-            if matched is not None:
-                available = matched.get('unlocked', 0)
-
-        try:
-            available_float = float(available)
-        except (TypeError, ValueError):
-            available_float = 0.0
-
-        if available_float < value:
-            raise ValueError("Insufficient balance")
-
+    def withdraw(self, token: str, value: float) -> dict:
         return self.api.withdraw_to_kaia(token, value)
 
-    def deposit(self, token: str, value: float) -> bool:
+    def deposit(self, token: str, value: float) -> dict:
         return self.api.deposit_to_alphasec(token, value)
+
+    # State accessors
+    @property
+    def l1_address(self):
+        return self.api.signer.l1_address if self.api.signer else None
+
+    def is_session_enabled(self) -> bool:
+        return bool(self.api.signer and self.api.signer.session_enabled)
 
     # Market data helpers
     def get_depth(self, market: str, limit: int = 100) -> dict:

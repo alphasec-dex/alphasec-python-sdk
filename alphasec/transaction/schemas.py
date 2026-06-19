@@ -209,6 +209,132 @@ class ModifyModel(BaseModel):
         return out
 
 
+# ---------------------------------------------------------------------------
+# Perp (perpetual futures) wire models
+#
+# Byte-for-byte compatible with alphasec-rust-sdk src/signer/perp_transaction.rs.
+# Two key-ordering rules are reproduced exactly by the insertion order in each
+# ``to_wire()`` (Python's ``json.dumps`` preserves dict insertion order):
+#   - PerpOrder / PerpModify: rust builds the base object through a serde_json::Map
+#     (alphabetically sorted keys), then splices price/quantity (or newPrice/
+#     newQuantity) LAST as raw JSON integers. Reproduced below.
+#   - Cancel / CancelAll / SetLeverage / Deposit / Withdraw: rust serializes the
+#     struct in declaration order.
+# price/quantity/newPrice/newQuantity are JSON integers (10^18-scaled, see
+# ``perp_scale``); deposit/withdraw ``amount`` is a JSON string. l1owner is the
+# lowercase hex address (lowercased by the caller in ``sign.py``).
+# ---------------------------------------------------------------------------
+
+
+class PerpOrderModel(BaseModel):
+    l1owner: str
+    market_id: int = Field(ge=0)
+    side: Literal[0, 1]
+    price: int  # already 10^18-scaled integer
+    quantity: int  # already 10^18-scaled integer
+    is_reduce_only: bool
+    time_in_force: Literal[0, 1, 2, 3]
+    client_order_id: Optional[str] = None
+
+    def to_wire(self) -> dict:
+        out: dict = {}
+        if self.client_order_id is not None:
+            out["clientOrderId"] = self.client_order_id
+        out["isReduceOnly"] = self.is_reduce_only
+        out["l1owner"] = self.l1owner
+        out["marketId"] = self.market_id
+        out["side"] = self.side
+        out["timeInForce"] = self.time_in_force
+        out["price"] = self.price
+        out["quantity"] = self.quantity
+        return out
+
+
+class PerpCancelModel(BaseModel):
+    l1owner: str
+    market_id: int = Field(ge=0)
+    order_id: str
+
+    def to_wire(self) -> dict:
+        return {
+            "l1owner": self.l1owner,
+            "marketId": self.market_id,
+            "orderId": self.order_id,
+        }
+
+
+class PerpCancelAllModel(BaseModel):
+    l1owner: str
+    market_id: int = Field(ge=0)  # 0 = all markets
+
+    def to_wire(self) -> dict:
+        return {
+            "l1owner": self.l1owner,
+            "marketId": self.market_id,
+        }
+
+
+class PerpSetLeverageModel(BaseModel):
+    l1owner: str
+    market_id: int = Field(ge=0)
+    leverage: int = Field(ge=1, le=125)
+
+    def to_wire(self) -> dict:
+        return {
+            "l1owner": self.l1owner,
+            "marketId": self.market_id,
+            "leverage": self.leverage,
+        }
+
+
+class PerpModifyModel(BaseModel):
+    l1owner: str
+    market_id: int = Field(ge=0)
+    order_id: str
+    new_price: Optional[int] = None  # already 10^18-scaled integer; None -> key omitted
+    new_quantity: Optional[int] = None  # already 10^18-scaled integer; None -> key omitted
+    client_order_id: Optional[str] = None  # "" included, None omitted
+
+    def to_wire(self) -> dict:
+        out: dict = {}
+        if self.client_order_id is not None:
+            out["clientOrderId"] = self.client_order_id
+        out["l1owner"] = self.l1owner
+        out["marketId"] = self.market_id
+        out["orderId"] = self.order_id
+        if self.new_price is not None:
+            out["newPrice"] = self.new_price
+        if self.new_quantity is not None:
+            out["newQuantity"] = self.new_quantity
+        return out
+
+
+class PerpDepositModel(BaseModel):
+    l1owner: str
+    token: str
+    amount: str  # raw integer as string (value x 10^18)
+
+    def to_wire(self) -> dict:
+        return {
+            "l1owner": self.l1owner,
+            "token": self.token,
+            "amount": self.amount,
+        }
+
+
+class PerpWithdrawModel(BaseModel):
+    l1owner: str
+    token: str
+    amount: str  # raw integer as string (value x 10^18)
+
+    def to_wire(self) -> dict:
+        return {
+            "l1owner": self.l1owner,
+            "token": self.token,
+            "amount": self.amount,
+        }
+
+
 class SessionContextModel(BaseModel):
     type: int = Field(ge=1, le=3)
     publickey: AddressStr

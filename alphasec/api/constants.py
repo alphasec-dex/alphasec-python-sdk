@@ -10,5 +10,5 @@ QUOTE_MODE = 1
 MAINNET_URL = "https://public-en.node.kaia.io"
 KAIROS_URL = "https://public-en-kairos.node.kaia.io"
 
-ALPHASEC_MAINNET_URL = "https://l2-rpc-dev.dexor.trade"
-ALPHASEC_KAIROS_URL = "https://l2-rpc-dev.dexor.trade"
+ALPHASEC_MAINNET_URL = "https://l2-sequencer.alphasec.trade"
+ALPHASEC_KAIROS_URL = "https://l2-sequencer-testnet.alphasec.trade"

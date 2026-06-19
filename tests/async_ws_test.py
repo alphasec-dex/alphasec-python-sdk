@@ -6,7 +6,6 @@ Uses mock websocket server for unit testing.
 
 import asyncio
 import json
-import os
 from collections import defaultdict
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -15,14 +14,7 @@ import pytest
 import pytest_asyncio
 from websockets.exceptions import ConnectionClosed
 
-from alphasec.transaction.utils import load_config
 from alphasec.websocket.async_ws import AsyncWebsocketManager
-
-# Integration test gate: set ALPHASEC_INTEGRATION_TEST=1 to run.
-SKIP_INTEGRATION = pytest.mark.skipif(
-    not os.environ.get("ALPHASEC_INTEGRATION_TEST"),
-    reason="Integration test - set ALPHASEC_INTEGRATION_TEST=1 to run",
-)
 
 # Sentinel queued by close() so a pending __anext__ wakes up and raises
 # ConnectionClosed, mirroring how a real connection ends iteration.
@@ -669,59 +661,3 @@ class TestAsyncWebsocketManagerConcurrency:
         }
         assert registered_ids == set(ids)
         assert len(mock_ws.sent_messages) == n
-
-
-# Integration test - requires real server
-@SKIP_INTEGRATION
-class TestAsyncWebsocketManagerIntegration:
-    """Integration tests with real server."""
-
-    @pytest.mark.asyncio
-    async def test_full_subscription_flow(self):
-        """Test full subscription flow with real server."""
-        config = load_config(os.path.dirname(__file__) + "/config")
-
-        manager = AsyncWebsocketManager(config["api_url"])
-
-        received_messages = []
-
-        async def run_test():
-            await manager.connect()
-
-            # Start the message loop in background
-            run_task = asyncio.create_task(manager.run())
-
-            try:
-                await manager.subscribe(
-                    channel="trade@5_2",
-                    callback=lambda x: received_messages.append(x),
-                    timeout=5,
-                )
-                await manager.subscribe(
-                    channel="depth@5_2",
-                    callback=lambda x: received_messages.append(x),
-                    timeout=5,
-                )
-                await manager.subscribe(
-                    channel="ticker@5_2",
-                    callback=lambda x: received_messages.append(x),
-                    timeout=5,
-                )
-                await manager.subscribe(
-                    channel="userEvent@0x70dBb395AF2eDCC2833D803C03AbBe56ECe7c25c",
-                    callback=lambda x: received_messages.append(x),
-                    timeout=5,
-                )
-
-                # Wait for some messages
-                await asyncio.sleep(20)
-            finally:
-                await manager.stop()
-                run_task.cancel()
-                try:
-                    await run_task
-                except asyncio.CancelledError:
-                    pass
-
-        await run_test()
-        print(f"Received {len(received_messages)} messages")

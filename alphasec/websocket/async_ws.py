@@ -33,6 +33,36 @@ ActiveSubscription = NamedTuple(
 )
 
 
+# Perp channel prefix -> identifier stream tag. Perp channels must be matched
+# before the generic spot substring checks below, since e.g. "perp_ticker"
+# contains the substring "ticker". The identifier is built from the channel
+# string alone (not the payload), so channel_to_identifier and
+# ws_msg_to_identifier always agree. Tags are lowercased to match this file's
+# convention (cf. "userevent:").
+_PERP_CHANNEL_PREFIXES = (
+    ("perp_ticker", "perp_ticker"),
+    ("perp_markPrice", "perp_markprice"),
+    ("perp_aggTrade", "perp_aggtrade"),
+    ("perp_aggDepth", "perp_aggdepth"),
+    ("perp_candle", "perp_candle"),
+)
+
+
+def _perp_channel_to_identifier(channel: str) -> Optional[str]:
+    """Return the routing identifier for a perp market-data channel, else None.
+
+    The suffix after the prefix (e.g. "@1", "@1:1d") keys the identifier so each
+    marketId/resolution routes independently. userEvent is intentionally not
+    handled here: it is a shared spot/perp channel routed by the existing
+    userEvent branch.
+    """
+    for prefix, tag in _PERP_CHANNEL_PREFIXES:
+        if channel.startswith(prefix):
+            suffix = channel[len(prefix):].lower()
+            return f"{tag}:{suffix}"
+    return None
+
+
 def channel_to_identifier(channel: str) -> str:
     """Convert a channel name to its identifier format.
 
@@ -45,6 +75,9 @@ def channel_to_identifier(channel: str) -> str:
     Raises:
         ValueError: If the channel format is unknown
     """
+    perp_identifier = _perp_channel_to_identifier(channel)
+    if perp_identifier is not None:
+        return perp_identifier
     if "trade" in channel:
         return f'trade:{channel.split("@")[1].lower()}'
     if "depth" in channel:
@@ -73,6 +106,13 @@ def ws_msg_to_identifier(ws_msg: WsMsg) -> Optional[str]:
 
     if "pong" in channel:
         return "pong"
+
+    # Perp channels are routed by channel string alone (see
+    # _perp_channel_to_identifier), matched before the generic spot substring
+    # checks so "perp_ticker" is not mistaken for a spot ticker.
+    perp_identifier = _perp_channel_to_identifier(channel)
+    if perp_identifier is not None:
+        return perp_identifier
 
     if "trade" in channel:
         trades = ws_msg["params"]["result"]

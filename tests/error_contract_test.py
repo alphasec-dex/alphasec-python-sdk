@@ -99,14 +99,17 @@ async def test_async_non_json_then_recovery_on_same_instance():
         await api.close()
 
 
-def test_sync_constructor_non_json_raises_alphasec_api_error(monkeypatch):
+def test_sync_initialize_non_json_raises_alphasec_api_error(monkeypatch):
     patch_sync_session(
         monkeypatch,
         lambda url: FakeResponse(text="<html>Bad Gateway</html>", non_json=True),
     )
 
+    # C3: sync construction is now lazy/offline (mirrors AsyncAPI); the token
+    # fetch and its failure are deferred to initialize() / first use.
+    api = API(url="http://offline.test")
     with pytest.raises(AlphasecAPIError) as exc_info:
-        API(url="http://offline.test")
+        api.initialize()
     assert "Failed to fetch token metadata" in str(exc_info.value)
 
 
@@ -115,8 +118,9 @@ async def test_missing_result_same_exception_sync_and_async(monkeypatch):
     error_payload = {"code": 500, "error": "boom"}
 
     patch_sync_session(monkeypatch, lambda url: FakeResponse(json_data=error_payload))
+    sync_api = API(url="http://offline.test")
     with pytest.raises(AlphasecAPIError) as sync_exc:
-        API(url="http://offline.test")
+        sync_api.initialize()
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=error_payload)
@@ -136,7 +140,7 @@ def _sync_order_route(url: str) -> FakeResponse:
     if url.endswith(TOKENS_PATH):
         return FakeResponse(json_data={"result": TOKENS_RESULT})
     if url.endswith("/api/v1/order/notfound"):
-        # Real QA shape captured live: a missing order returns app-level
+        # Real live shape captured: a missing order returns app-level
         # code -1001 ("Resource not found"). The HTTP 404 status is discarded
         # by get(), so the dict carries -1001, never 404.
         return FakeResponse(json_data={"code": -1001, "errMsg": "Resource not found"})
@@ -152,7 +156,7 @@ def _async_order_handler(request: httpx.Request) -> httpx.Response:
     if path == TOKENS_PATH:
         return httpx.Response(200, json={"result": TOKENS_RESULT})
     if path == "/api/v1/order/notfound":
-        # Real QA emits HTTP 404 + body code -1001; get() returns only the body.
+        # Real live backend emits HTTP 404 + body code -1001; get() returns only the body.
         return httpx.Response(404, json={"code": -1001, "errMsg": "Resource not found"})
     if path == "/api/v1/order/500":
         return httpx.Response(500, json={"code": 500, "errMsg": "internal error"})

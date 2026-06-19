@@ -2,7 +2,7 @@
 
 Provides a high-level async interface combining AsyncAPI and AsyncWebsocketManager.
 """
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional
 import asyncio
 import logging
 
@@ -10,6 +10,9 @@ from alphasec.api.async_api import AsyncAPI
 from alphasec.websocket.async_ws import AsyncWebsocketManager
 from alphasec.transaction.sign import AlphasecSigner
 from alphasec.api.utils import market_to_market_id
+from alphasec.perp.async_agent import AsyncPerpAgent
+
+logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,7 @@ class AsyncAgent:
         self.api: Optional[AsyncAPI] = None
         self.ws: Optional[AsyncWebsocketManager] = None
         self._ws_task: Optional[asyncio.Task] = None
+        self.perp = AsyncPerpAgent(self)
 
     async def __aenter__(self) -> "AsyncAgent":
         """Async context manager entry."""
@@ -248,34 +252,9 @@ class AsyncAgent:
         return await self.api.token_transfer(to, value, token)
 
     async def withdraw(self, token: str, value: float) -> dict:
-        """Withdraw tokens to Kaia with balance check."""
+        """Withdraw tokens to Kaia (thin passthrough; server validates balance)."""
         await self._ensure_initialized()
         assert self.api is not None
-
-        if self.api.signer is None:
-            raise ValueError("Only read-only API is available when signer is not set")
-
-        balances = await self.get_balance(self.api.signer.l1_address)
-        try:
-            token_id = self.api.symbol_token_id_map[token]
-        except KeyError:
-            raise ValueError(f"Unknown token symbol: {token}")
-
-        # balances may be a list of { tokenId, locked, unlocked }
-        available: Union[float, int, str] = 0
-        if isinstance(balances, list):
-            matched = next((b for b in balances if str(b.get('tokenId')) == str(token_id)), None)
-            if matched is not None:
-                available = matched.get('unlocked', 0)
-
-        try:
-            available_float = float(available)
-        except (TypeError, ValueError):
-            available_float = 0.0
-
-        if available_float < value:
-            raise ValueError("Insufficient balance")
-
         return await self.api.withdraw_to_kaia(token, value)
 
     async def deposit(self, token: str, value: float) -> dict:
@@ -283,6 +262,16 @@ class AsyncAgent:
         await self._ensure_initialized()
         assert self.api is not None
         return await self.api.deposit_to_alphasec(token, value)
+
+    # State accessors
+    @property
+    def l1_address(self):
+        signer = self.api.signer if self.api is not None else self._signer
+        return signer.l1_address if signer else None
+
+    def is_session_enabled(self) -> bool:
+        signer = self.api.signer if self.api is not None else self._signer
+        return bool(signer and signer.session_enabled)
 
     # Market data helpers
     async def get_depth(self, market: str, limit: int = 100) -> dict:

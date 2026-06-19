@@ -81,6 +81,8 @@ def normalize_price_quantity(price: float, quantity: float) -> tuple[float, floa
             return 0
 
     # Validation
+    if price is None or quantity is None:
+        raise ValueError("Price and quantity are required")
     if price <= 0:
         raise ValueError("Price must be positive")
     if quantity <= 0:
@@ -93,5 +95,14 @@ def normalize_price_quantity(price: float, quantity: float) -> tuple[float, floa
     # Normalize quantity based on price value (minimum size constraint)
     quantity_precision = get_quantity_decimal_precision(price)
     normalized_quantity = round(quantity, quantity_precision)
-    
+
     return normalized_price, normalized_quantity
+
+
+def resolve_spot_order_price_quantity(is_market: bool, price: float, quantity: float):
+    """MARKET: server ignores price -> (0.0, raw quantity). LIMIT: value-based normalize."""
+    if is_market:
+        if quantity is None or quantity <= 0:
+            raise ValueError("Quantity must be positive")
+        return 0.0, quantity
+    return normalize_price_quantity(price, quantity)

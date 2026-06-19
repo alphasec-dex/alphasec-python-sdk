@@ -1,10 +1,11 @@
 import time
+from decimal import Decimal, ROUND_DOWN, localcontext, InvalidOperation
 from ens.ens import default
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 import json
 import base64
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 from eth_utils.address import is_address
 from web3 import Web3
 
@@ -20,6 +21,13 @@ from .schemas import (
     CancelAllModel,
     ModifyModel,
     SessionContextModel,
+    PerpOrderModel,
+    PerpCancelModel,
+    PerpCancelAllModel,
+    PerpSetLeverageModel,
+    PerpModifyModel,
+    PerpDepositModel,
+    PerpWithdrawModel,
 )
 
 from .constants import (
@@ -46,6 +54,13 @@ from .constants import (
     DexCommandCancelAll,
     DexCommandModify,
     DexCommandStopOrder,
+    DexCommandPerpOrder,
+    DexCommandPerpCancel,
+    DexCommandPerpCancelAll,
+    DexCommandPerpWithdraw,
+    DexCommandPerpSetLeverage,
+    DexCommandPerpModify,
+    DexCommandPerpDeposit,
 )
 
 from .abi import (
@@ -61,6 +76,52 @@ from .abi import (
 def address_to_bytes(address):
     return bytes.fromhex(address[2:] if address.startswith("0x") else address)
 
+
+# Perp wire scaling factor: all perp tokens use flat x10^18 scaling.
+_PERP_SCALE = 10 ** 18
+# rust_decimal's max value (2^96 - 1). The rust SDK's perp_scale rejects any value
+# whose x10^18 product exceeds this; matched here for cross-SDK behavioral parity.
+_PERP_SCALED_MAX = 79228162514264337593543950335
+
+PerpAmount = Union[Decimal, str, int]
+
+
+def perp_scale(value: PerpAmount) -> int:
+    """Scale a perp price/quantity/amount to a 10^18 integer (truncate, no rounding).
+
+    Mirrors alphasec-rust-sdk ``src/signer/utils.rs::perp_scale``: multiply by 10^18
+    then truncate toward zero. ``float`` is rejected (0.1-style values produce wrong
+    bytes); pass ``Decimal`` or ``str``. Negative values are rejected (``-0`` is
+    allowed as ``0``). Values whose scaled magnitude exceeds rust_decimal's max are
+    rejected for cross-SDK parity.
+
+    Parity note: the overflow guard is checked on the truncated integer (rust checks
+    the pre-truncation product). The two agree on every realistic value and on the
+    economic ceiling (~7.92e28 scaled units); they differ only for pathological inputs
+    with >28 significant fractional digits, where this emits the correct
+    floor(value * 10^18) that rust would instead refuse to build.
+    """
+    if isinstance(value, float):
+        raise TypeError("float is not allowed for perp amounts; use Decimal or str")
+    if isinstance(value, Decimal):
+        d = value
+    else:
+        try:
+            d = Decimal(str(value))
+        except (InvalidOperation, ValueError, TypeError):
+            raise ValueError(f"perp amount must be a numeric Decimal or str, got {value!r}")
+    if not d.is_finite():
+        raise ValueError(f"perp amount must be finite, got {value!r}")
+    if d < 0:
+        raise ValueError("amount cannot be negative")
+    with localcontext() as ctx:
+        ctx.prec = 60
+        scaled = (d * _PERP_SCALE).to_integral_value(rounding=ROUND_DOWN)
+    result = int(scaled)
+    if result > _PERP_SCALED_MAX:
+        raise ValueError("amount too large (overflow in x10^18 scale)")
+    return result
+
 class AlphasecSigner:
     l1_address: str
     l1_wallet: Account
@@ -75,6 +136,12 @@ class AlphasecSigner:
         if not "l1_address" in config:
             raise ValueError("l1_address should be set")
         self.l1_address = config["l1_address"]
+        # [D1] Default to None so the `if self.l1_wallet is None` guards in
+        # deposit/withdraw raise the intended ValueError instead of an
+        # AttributeError when the signer is created without an l1_wallet
+        # (e.g. an l2/session-only config).
+        self.l1_wallet = None
+        self.l2_wallet = None
         if "l1_wallet" in config:
             self.l1_wallet = Account.from_key(config["l1_wallet"])
         if "l2_wallet" in config:
@@ -223,6 +290,79 @@ class AlphasecSigner:
         payload = model.to_wire()
         return bytes([DexCommandStopOrder]) + json.dumps(payload, separators=(",", ":")).encode("utf-8")
 
+
+    # -----------------------------------------------------------------------
+    # Perp (perpetual futures) wire builders
+    #
+    # Each returns ``command_byte + JSON(UTF-8)`` bytes, fed to
+    # ``generate_alphasec_transaction`` exactly like spot. nonce = timestamp_ms,
+    # identical signing flow. l1owner is lowercased to match the wire contract.
+    # -----------------------------------------------------------------------
+
+    def create_perp_order_data(
+        self,
+        market_id: int,
+        side: int,
+        price: PerpAmount,
+        quantity: PerpAmount,
+        reduce_only: bool,
+        time_in_force: int,
+        client_order_id: Optional[str] = None,
+    ) -> bytes:
+        from alphasec.perp.constants import MARKET   # local import: avoid perp<->sign import cycle
+        if time_in_force == MARKET and price is None:
+            price = 0   # server ignores price for market orders; default a deterministic 0
+                        # when caller omits it. An explicit price is preserved to keep the
+                        # cross-SDK golden-hex wire contract (tests/perp_wire_test.py).
+        model = PerpOrderModel(
+            l1owner=self.l1_address.lower(),
+            market_id=market_id,
+            side=side,
+            price=perp_scale(price),
+            quantity=perp_scale(quantity),
+            is_reduce_only=reduce_only,
+            time_in_force=time_in_force,
+            client_order_id=client_order_id,
+        )
+        return bytes([DexCommandPerpOrder]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
+
+    def create_perp_cancel_data(self, market_id: int, order_id: str) -> bytes:
+        model = PerpCancelModel(l1owner=self.l1_address.lower(), market_id=market_id, order_id=order_id)
+        return bytes([DexCommandPerpCancel]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
+
+    def create_perp_cancel_all_data(self, market_id: int) -> bytes:
+        model = PerpCancelAllModel(l1owner=self.l1_address.lower(), market_id=market_id)
+        return bytes([DexCommandPerpCancelAll]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
+
+    def create_perp_modify_data(
+        self,
+        market_id: int,
+        order_id: str,
+        new_price: Optional[PerpAmount] = None,
+        new_quantity: Optional[PerpAmount] = None,
+        client_order_id: Optional[str] = None,
+    ) -> bytes:
+        model = PerpModifyModel(
+            l1owner=self.l1_address.lower(),
+            market_id=market_id,
+            order_id=order_id,
+            new_price=perp_scale(new_price) if new_price is not None else None,
+            new_quantity=perp_scale(new_quantity) if new_quantity is not None else None,
+            client_order_id=client_order_id,
+        )
+        return bytes([DexCommandPerpModify]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
+
+    def create_perp_set_leverage_data(self, market_id: int, leverage: int) -> bytes:
+        model = PerpSetLeverageModel(l1owner=self.l1_address.lower(), market_id=market_id, leverage=leverage)
+        return bytes([DexCommandPerpSetLeverage]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
+
+    def create_perp_deposit_data(self, token: str, amount: PerpAmount) -> bytes:
+        model = PerpDepositModel(l1owner=self.l1_address.lower(), token=token, amount=str(perp_scale(amount)))
+        return bytes([DexCommandPerpDeposit]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
+
+    def create_perp_withdraw_data(self, token: str, amount: PerpAmount) -> bytes:
+        model = PerpWithdrawModel(l1owner=self.l1_address.lower(), token=token, amount=str(perp_scale(amount)))
+        return bytes([DexCommandPerpWithdraw]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")
 
     def generate_alphasec_transaction(self, timestamp_ms: int, data: bytes, wallet: Account = None) -> str:
         if wallet is None:
