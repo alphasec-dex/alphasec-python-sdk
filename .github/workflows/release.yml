@@ -1,0 +1,29 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install "pytest>=8.4.2" "pytest-asyncio>=0.24,<1" build twine
+      - run: pip install .
+      # Gate: offline units must pass before publishing (live e2e excluded by `-m 'not live'`).
+      - run: pytest
+      # Build sdist + wheel into dist/.
+      - run: python -m build
+      # Validate metadata + README rendering before upload (dry-run equivalent).
+      - run: twine check dist/*
+      # Real upload. Version comes from pyproject.toml [project].version, NOT the git tag.
+      - run: twine upload dist/*
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}

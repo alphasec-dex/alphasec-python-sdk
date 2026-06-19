@@ -1,10 +1,9 @@
 [project]
-name = "alphasec"
+name = "alphasec-py"
 version = "0.1.0"
 description = "trading sdk for alphasec orderbook dex"
-authors = [
-    {name = "Alphasec",email = "alphasec@alphasec.io"}
-]
+license = "MIT"
+authors = [{ name = "Alphasec", email = "dev@alphasec.trade" }]
 readme = "README.md"
 requires-python = ">=3.9,<4"
 dependencies = [

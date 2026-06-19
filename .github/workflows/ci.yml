@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install --upgrade pip
+      # Install the package (poetry-core build) + runtime deps from pyproject.
+      - run: pip install .
+      # Test deps live in poetry's dev group; `pip install .` does not pull them.
+      - run: pip install "pytest>=8.4.2" "pytest-asyncio>=0.24,<1"
+      # Offline units only; live e2e (api/ws/perp) excluded by the `-m 'not live'` addopts.
+      - run: pytest
