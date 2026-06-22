@@ -2,18 +2,26 @@
 
 A trading SDK for the Alphasec orderbook DEX.
 
-[![PyPI version](https://badge.fury.io/py/alphasec.svg)](https://badge.fury.io/py/alphasec)
+[![PyPI version](https://badge.fury.io/py/alphasec-py.svg)](https://pypi.org/project/alphasec-py/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+## 🔗 Links
+
+- [Official](https://alphasec.trade)
+- [Telegram](https://t.me/alphasecofficial)
+- [Discord](https://discord.gg/alphasec)
+- [X](https://x.com/AlphaSec_Trade)
 
 ## 🚀 Quick Start
 
 ### Install (Not yet deployed)
+
 ```bash
 pip install alphasec
 ```
 
 ### Configure (required for examples)
+
 ```bash
 cd examples
 cp config/config.json.example config/config.json
@@ -21,6 +29,7 @@ cp config/config.json.example config/config.json
 ```
 
 ### Minimal config.json
+
 ```json
 {
   "network": "kairos",
@@ -33,14 +42,15 @@ cp config/config.json.example config/config.json
 ```
 
 ### Run an example
+
 ```bash
 python examples/market_data/basic_tickers.py
 ```
 
-
 ## 🌐 Network Information
 
 ### Kairos Testnet
+
 - **API URL**: `https://api-testnet.alphasec.trade`
 - **Websocket URL**: `wss://api-testnet.alphasec.trade/ws`
 - **Network**: `kairos`
@@ -48,6 +58,7 @@ python examples/market_data/basic_tickers.py
 - **L2 Chain ID**: 41001 (AlphaSec L2)
 
 ### Mainnet
+
 - **API URL**: `https://api.alphasec.trade`
 - **Websocket URL**: `wss://api.alphasec.trade/ws`
 - **Network**: `mainnet`
