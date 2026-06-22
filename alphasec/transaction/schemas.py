@@ -212,17 +212,20 @@ class ModifyModel(BaseModel):
 # ---------------------------------------------------------------------------
 # Perp (perpetual futures) wire models
 #
-# Byte-for-byte compatible with alphasec-rust-sdk src/signer/perp_transaction.rs.
 # Two key-ordering rules are reproduced exactly by the insertion order in each
 # ``to_wire()`` (Python's ``json.dumps`` preserves dict insertion order):
-#   - PerpOrder / PerpModify: rust builds the base object through a serde_json::Map
-#     (alphabetically sorted keys), then splices price/quantity (or newPrice/
-#     newQuantity) LAST as raw JSON integers. Reproduced below.
-#   - Cancel / CancelAll / SetLeverage / Deposit / Withdraw: rust serializes the
-#     struct in declaration order.
-# price/quantity/newPrice/newQuantity are JSON integers (10^18-scaled, see
-# ``perp_scale``); deposit/withdraw ``amount`` is a JSON string. l1owner is the
-# lowercase hex address (lowercased by the caller in ``sign.py``).
+#   - PerpOrder / PerpModify: the base object uses alphabetically sorted keys, then
+#     price/quantity (or newPrice/newQuantity) are spliced LAST.
+#   - Cancel / CancelAll / SetLeverage / Deposit / Withdraw: declaration order.
+# price/quantity/newPrice/newQuantity are JSON decimal *strings* (human-readable;
+# the node scales by 10^18, see ``perp_decimal_str``). deposit/withdraw ``amount``
+# stays a 10^18-scaled integer string (see ``perp_scale``). l1owner is the lowercase
+# hex address (lowercased by the caller in ``sign.py``).
+#
+# NOTE: order/modify previously sent price/quantity as 10^18-scaled integers to be
+# byte-for-byte compatible with alphasec-rust-sdk. The backend moved order/modify to
+# decimal strings (Breaking Change); rust has not yet followed, so the order/modify
+# golden hex (tests/perp_wire_test.py) is currently spec-derived, not rust-sourced.
 # ---------------------------------------------------------------------------
 
 
@@ -230,8 +233,8 @@ class PerpOrderModel(BaseModel):
     l1owner: str
     market_id: int = Field(ge=0)
     side: Literal[0, 1]
-    price: int  # already 10^18-scaled integer
-    quantity: int  # already 10^18-scaled integer
+    price: str  # decimal string (node scales by 10^18)
+    quantity: str  # decimal string (node scales by 10^18)
     is_reduce_only: bool
     time_in_force: Literal[0, 1, 2, 3]
     client_order_id: Optional[str] = None
@@ -291,8 +294,8 @@ class PerpModifyModel(BaseModel):
     l1owner: str
     market_id: int = Field(ge=0)
     order_id: str
-    new_price: Optional[int] = None  # already 10^18-scaled integer; None -> key omitted
-    new_quantity: Optional[int] = None  # already 10^18-scaled integer; None -> key omitted
+    new_price: Optional[str] = None  # decimal string (node scales by 10^18); None -> key omitted
+    new_quantity: Optional[str] = None  # decimal string (node scales by 10^18); None -> key omitted
     client_order_id: Optional[str] = None  # "" included, None omitted
 
     def to_wire(self) -> dict:

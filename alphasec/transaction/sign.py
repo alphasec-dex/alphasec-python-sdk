@@ -87,7 +87,10 @@ PerpAmount = Union[Decimal, str, int]
 
 
 def perp_scale(value: PerpAmount) -> int:
-    """Scale a perp price/quantity/amount to a 10^18 integer (truncate, no rounding).
+    """Scale a perp deposit/withdraw amount to a 10^18 integer (truncate, no rounding).
+
+    Order/modify price/quantity no longer use this (they send decimal strings via
+    ``perp_decimal_str``); only deposit/withdraw ``amount`` stays 10^18-scaled.
 
     Mirrors alphasec-rust-sdk ``src/signer/utils.rs::perp_scale``: multiply by 10^18
     then truncate toward zero. ``float`` is rejected (0.1-style values produce wrong
@@ -121,6 +124,35 @@ def perp_scale(value: PerpAmount) -> int:
     if result > _PERP_SCALED_MAX:
         raise ValueError("amount too large (overflow in x10^18 scale)")
     return result
+
+
+def perp_decimal_str(value: PerpAmount) -> str:
+    """Format a perp price/quantity as the node's decimal string (fixed-point).
+
+    Order (0x41) and modify (0x4A) send the human-readable decimal as a JSON
+    *string* (e.g. ``"50000"``, ``"0.5"``); the node scales by 10^18 internally.
+    This replaces the old client-side ``perp_scale`` for those fields. Validation
+    mirrors ``perp_scale``: ``float`` is rejected (0.1-style values produce wrong
+    digits; pass ``Decimal``/``str``/``int``), negative and non-finite are rejected.
+    Output is fixed-point so the node parser never sees scientific notation
+    (``Decimal("5E+4")`` -> ``"50000"``). Magnitude/precision limits are enforced by
+    the node (no client-side x10^18 overflow cap, unlike ``perp_scale``).
+    """
+    if isinstance(value, float):
+        raise TypeError("float is not allowed for perp amounts; use Decimal or str")
+    if isinstance(value, Decimal):
+        d = value
+    else:
+        try:
+            d = Decimal(str(value))
+        except (InvalidOperation, ValueError, TypeError):
+            raise ValueError(f"perp amount must be a numeric Decimal or str, got {value!r}")
+    if not d.is_finite():
+        raise ValueError(f"perp amount must be finite, got {value!r}")
+    if d < 0:
+        raise ValueError("amount cannot be negative")
+    return format(d, "f")
+
 
 class AlphasecSigner:
     l1_address: str
@@ -318,8 +350,8 @@ class AlphasecSigner:
             l1owner=self.l1_address.lower(),
             market_id=market_id,
             side=side,
-            price=perp_scale(price),
-            quantity=perp_scale(quantity),
+            price=perp_decimal_str(price),
+            quantity=perp_decimal_str(quantity),
             is_reduce_only=reduce_only,
             time_in_force=time_in_force,
             client_order_id=client_order_id,
@@ -346,8 +378,8 @@ class AlphasecSigner:
             l1owner=self.l1_address.lower(),
             market_id=market_id,
             order_id=order_id,
-            new_price=perp_scale(new_price) if new_price is not None else None,
-            new_quantity=perp_scale(new_quantity) if new_quantity is not None else None,
+            new_price=perp_decimal_str(new_price) if new_price is not None else None,
+            new_quantity=perp_decimal_str(new_quantity) if new_quantity is not None else None,
             client_order_id=client_order_id,
         )
         return bytes([DexCommandPerpModify]) + json.dumps(model.to_wire(), separators=(",", ":")).encode("utf-8")

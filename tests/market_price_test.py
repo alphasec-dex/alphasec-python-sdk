@@ -18,7 +18,9 @@ def test_perp_market_order_forces_zero_price():
         market_id=1, side=0, price=None, quantity=Decimal("0.001"),
         reduce_only=False, time_in_force=MARKET)
     wire = json.loads(data[1:].decode("utf-8"))   # strip 1-byte command
-    assert wire["price"] == 0
+    # Decimal-string wire: market default price is the string "0" (node scales), not int 0.
+    assert wire["price"] == "0"
+    assert isinstance(wire["price"], str)
 
 
 # spot pure helper

@@ -1,6 +1,6 @@
 [project]
 name = "alphasec-py"
-version = "0.1.2"
+version = "0.1.3"
 description = "trading sdk for alphasec orderbook dex"
 license = "MIT"
 authors = [{ name = "Alphasec", email = "dev@alphasec.trade" }]
