@@ -1,6 +1,6 @@
 [project]
 name = "alphasec-py"
-version = "0.1.1"
+version = "0.1.2"
 description = "trading sdk for alphasec orderbook dex"
 license = "MIT"
 authors = [{ name = "Alphasec", email = "dev@alphasec.trade" }]
@@ -17,6 +17,9 @@ dependencies = [
     "httpx>=0.27.0,<1.0.0",
     "websockets>=13.0,<16.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/alphasec-dex/alphasec-py"
 
 [tool.poetry]
 packages = [{ include = "alphasec" }]

@@ -14,17 +14,19 @@ A trading SDK for the Alphasec orderbook DEX.
 
 ## 🚀 Quick Start
 
-### Install (Not yet deployed)
+### Install
 
 ```bash
-pip install alphasec
+pip install alphasec-py
 ```
+
+> Installed as `alphasec-py`, imported as `alphasec`.
 
 ### Configure (required for examples)
 
 ```bash
 cd examples
-cp config/config.json.example config/config.json
+cp config.json.example config/config.json
 # Then edit config.json and fill your values
 ```
 
